@@ -41,7 +41,7 @@ C:\Keil\ARM\RV31\LIB\RTX_CM3.LIB --library_type=microlib --ro-base 0x08000000 --
 ### ADS-LD Output File: '.\obj\xiangweiban.axf'
 ### ADS-LD Command File: '.\obj\xiangweiban.lnp'
 ### Checking for dirty Components...
-### Creating CmdFile '.\obj\xiangweiban.lnp', Handle=0x00000DA8
+### Creating CmdFile '.\obj\xiangweiban.lnp', Handle=0x000005E4
 ### Writing '.lnp' file
 ### ADS-LD Command file '.\obj\xiangweiban.lnp' is ready.
 ### ADS-LD: About to start ADS-LD Thread.

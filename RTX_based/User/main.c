@@ -39,6 +39,7 @@ u8 Walker_channels = 0;
 u8 ID_Num = 1;
 u8 Work_normal = 1;
 __IO uint16_t  ADC_buffer[12];
+u16 Last_error = 0;
 
 extern void DMAReConfig(void);
 
@@ -363,6 +364,7 @@ __task void task_conflict_monitor(void)
 				{
 					os_mbx_send(CAN_send_mailbox, &msg_recovered, 0xffff);
 					Work_normal = 1;
+					Last_error = 0;
 				}
 			}
 		}
@@ -372,7 +374,6 @@ __task void task_conflict_monitor(void)
 __task void task_conflict_analysis(void)
 {
 	OS_RESULT result;
-	u8 Error_type;
 	u16 SWITs_status_map;
 	int i;
 
@@ -431,10 +432,14 @@ __task void task_conflict_analysis(void)
 					{
 						msg_error.data[6] = ERROR_SWIT_OPEN;
 					}
-					os_mbx_send (CAN_send_mailbox, &msg_error, 0xffff);
+
+					if (conflict_map != Last_error)
+					{
+						os_mbx_send (CAN_send_mailbox, &msg_error, 0xffff);
+					}
 				}
 			}
-
+			Last_error = conflict_map;
 		}
 	}
 }
