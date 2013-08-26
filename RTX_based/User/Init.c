@@ -141,30 +141,6 @@ void NVIC_Configuration(void)
     NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
     NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
     NVIC_Init(&NVIC_Initstructure); 
-
-    /*
-   //EXTIÖÐ¶Ïlxb
-    NVIC_Initstructure.NVIC_IRQChannel = EXTI3_IRQn;
-    NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
-    NVIC_Init(&NVIC_Initstructure); 
-    
-  //EXTIÖÐ¶Ïlxb
-    NVIC_Initstructure.NVIC_IRQChannel = EXTI15_10_IRQn;
-    NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
-    NVIC_Init(&NVIC_Initstructure); 
-
-   //EXTIÖÐ¶Ïlxb
-    NVIC_Initstructure.NVIC_IRQChannel = EXTI9_5_IRQn;
-    NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
-    NVIC_Init(&NVIC_Initstructure); 
-    */
-	
 }
 
 /*******************************************************************************
@@ -241,7 +217,7 @@ void GPIO_Configuration(void)
 	//SWIT1~12
 	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4 | GPIO_Pin_5 | GPIO_Pin_6 | GPIO_Pin_7 | GPIO_Pin_8 | GPIO_Pin_9 | GPIO_Pin_10 | GPIO_Pin_11 | GPIO_Pin_12 | GPIO_Pin_13 | GPIO_Pin_14 | GPIO_Pin_15;
 	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU;
 	GPIO_Init(GPIOE, &GPIO_InitStructure);  
 }
 
@@ -700,6 +676,92 @@ void EXTI_configuration(void)
     exti_init.EXTI_LineCmd = ENABLE;  
     exti_init = exti_init;
     EXTI_Init(&exti_init);  
+	
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource4);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource5);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource6);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource7);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource8);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource9);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource10);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource11);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource12);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource13);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource14);
+	GPIO_EXTILineConfig(GPIO_PortSourceGPIOE, GPIO_PinSource15);
+	
+	exti_init.EXTI_Line = EXTI_Line4;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+	
+	exti_init.EXTI_Line = EXTI_Line5;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line6;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line7;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line8;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line9;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line10;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line11;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line12;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line13;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line14;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
+	exti_init.EXTI_Line = EXTI_Line15;    
+    exti_init.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti_init.EXTI_Trigger = EXTI_Trigger_Falling;
+    exti_init.EXTI_LineCmd = ENABLE;
+	EXTI_Init(&exti_init);
+
 }
 
 void BKP_Configuration()
@@ -737,4 +799,49 @@ void Device_Init(void)
     //BKP_Configuration();
     //FLASH_Unlock();
     //FLASH_ClearFlag(FLASH_FLAG_BSY|FLASH_FLAG_EOP|FLASH_FLAG_PGERR|FLASH_FLAG_WRPRTERR);
+}
+
+void SWITs_Enable(u8 enable)
+{
+	NVIC_InitTypeDef NVIC_Initstructure;
+	
+	//EXTI interrupts for SWITs
+    NVIC_Initstructure.NVIC_IRQChannel = EXTI4_IRQn;
+	if(enable)
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
+	}
+	else
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = DISABLE;
+	}
+    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
+    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
+    NVIC_Init(&NVIC_Initstructure); 
+
+    NVIC_Initstructure.NVIC_IRQChannel = EXTI9_5_IRQn;
+	if(enable)
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
+	}
+	else
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = DISABLE;
+	}
+    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
+    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
+    NVIC_Init(&NVIC_Initstructure); 
+
+    NVIC_Initstructure.NVIC_IRQChannel = EXTI15_10_IRQn;
+	if(enable)
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
+	}
+	else
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = DISABLE;
+	}
+    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
+    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
+    NVIC_Init(&NVIC_Initstructure); 
 }
