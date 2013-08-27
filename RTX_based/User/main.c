@@ -17,6 +17,7 @@ OS_TID tid_conflict_analysis;
 OS_TID tid_heart_beat;
 
 os_mbx_declare (CAN_send_mailbox, 20);
+_declare_box(mpool,sizeof(CAN_msg),32);
 
 __task void init(void);
 __task void task_send_CAN(void);
@@ -53,6 +54,8 @@ __task void init (void)
 	Device_Init();
 	
 	os_mbx_init (CAN_send_mailbox, sizeof(CAN_send_mailbox));
+	_init_box (mpool, sizeof(mpool), sizeof(CAN_msg));
+
 	// init lights all red
 	GPIO_WriteBit(GPIOB, GPIO_Pin_3|GPIO_Pin_4|GPIO_Pin_5|GPIO_Pin_6|GPIO_Pin_7|GPIO_Pin_8|GPIO_Pin_9|GPIO_Pin_10|GPIO_Pin_11|GPIO_Pin_12|GPIO_Pin_13|GPIO_Pin_14, Bit_RESET);
 	GPIO_WriteBit(GPIOB, GPIO_Pin_3|GPIO_Pin_6|GPIO_Pin_9|GPIO_Pin_12, Bit_SET);
@@ -88,7 +91,7 @@ __task void task_send_CAN(void)
 		os_mbx_wait (CAN_send_mailbox, &msg, 0xffff);
 		
 		CAN_send (1, msg, 0x0F00);  /* Send msg_send on controller 1       */
-		//free(msg);
+		_free_box (mpool, msg);
 	}
 }
 __task void task_recv_CAN(void)
@@ -290,9 +293,10 @@ __task void task_conflict_monitor(void)
 	int i, j;
 	uint16_t ADC_samples[36];
 	uint16_t temp;
+	CAN_msg *msg_recovered;
 
 	/* Initialize message  = { ID, {data[0] .. data[7]}, LEN, CHANNEL, FORMAT, TYPE } */
-	CAN_msg msg_recovered = { 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+	//CAN_msg msg_recovered = { 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
 
 	while (1)
 	{
@@ -362,7 +366,18 @@ __task void task_conflict_monitor(void)
 				// if it recovers from a conflict
 				if(!Work_normal)
 				{
-					os_mbx_send(CAN_send_mailbox, &msg_recovered, 0xffff);
+					msg_recovered = _calloc_box (mpool);
+					//{ 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+					msg_recovered->id = 1;
+					msg_recovered->data[0] = IPI;
+					msg_recovered->data[1] = 0xD2;
+					msg_recovered->data[7] = MSG_END;
+					msg_recovered->len = sizeof(msg_recovered->data);
+					msg_recovered->ch = 2;
+					msg_recovered->format = STANDARD_FORMAT;
+					msg_recovered->type = DATA_FRAME;
+					
+					os_mbx_send(CAN_send_mailbox, msg_recovered, 0xffff);
 					Work_normal = 1;
 					Last_error = 0;
 				}
@@ -375,12 +390,13 @@ __task void task_conflict_analysis(void)
 {
 	OS_RESULT result;
 	u16 SWITs_status_map;
+	CAN_msg *msg_error;
 	int i;
 
 	//										   Line_num	 ID_Num	  bad_light_num	  error_type
-	CAN_msg msg_error = { 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+	//CAN_msg msg_error = { 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
 
-	msg_error.data[4] = ID_Num;
+	//msg_error.data[4] = ID_Num;
 
 	while (1)
 	{
@@ -390,7 +406,7 @@ __task void task_conflict_analysis(void)
 		{
 			//printf("Event wait timeout.\n");
 		}
-		else
+		else if(conflict_map != Last_error)
 		{
 			// get SWITs status map
 			SWITs_Enable(1);
@@ -416,27 +432,39 @@ __task void task_conflict_analysis(void)
 			{
 				if ((conflict_map >> i) & 0x0001)
 				{
+					msg_error = _calloc_box (mpool);
+					//						Line_num	 ID_Num	  bad_light_num	  error_type
+					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+					msg_error->id = 1;
+					msg_error->data[0] = IPI;
+					msg_error->data[1] = 0xD2;
+					msg_error->data[3] = 0x01;
+					msg_error->data[4] = ID_Num;
+					msg_error->data[7] = MSG_END;
+					msg_error->len = sizeof(msg_error->data);
+					msg_error->ch = 2;
+					msg_error->format = STANDARD_FORMAT;
+					msg_error->type = DATA_FRAME;
+					
 					// specify bad_light_num and error_type
-					msg_error.data[5] = ((i/4) << 4) | (i%4);
+					msg_error->data[5] = ((i/4) << 4) | (i%4);
 					
 					if ((ADC_status_map >> i) & 0x0001)
 					{
 						// SWIT short cut error
-						msg_error.data[6] = ERROR_SWIT_CLOSE;
+						msg_error->data[6] = ERROR_SWIT_CLOSE;
 					}
 					else if ((SWITs_status_map >> i) & 0x0001)
 					{
-						msg_error.data[6] = ERROR_LIGHT;
+						msg_error->data[6] = ERROR_LIGHT;
 					}
 					else
 					{
-						msg_error.data[6] = ERROR_SWIT_OPEN;
+						msg_error->data[6] = ERROR_SWIT_OPEN;
 					}
 
-					if (conflict_map != Last_error)
-					{
-						os_mbx_send (CAN_send_mailbox, &msg_error, 0xffff);
-					}
+					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+					
 				}
 			}
 			Last_error = conflict_map;
@@ -447,11 +475,11 @@ __task void task_conflict_analysis(void)
 __task void task_heart_beat(void)
 {
 	OS_RESULT result;
-	void *msg;
+	CAN_msg *msg_heart_beat;
 	/* Initialize message  = { ID, {data[0] .. data[7]}, LEN, CHANNEL, FORMAT, TYPE } */
-	CAN_msg msg_heart_beat = { 1, {IPI, 0x83, 0x01, 0xFF, 0x02, 0x00, 0x00, 0x00}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+	//CAN_msg msg_heart_beat = { 1, {IPI, 0x83, 0x01, 0xFF, 0x02, 0x00, 0x00, 0x00}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
 	
-	msg_heart_beat.data[3] = ID_Num;
+	
 
 	while (1)
 	{
@@ -463,9 +491,20 @@ __task void task_heart_beat(void)
 		}
 		else
 		{
-			//msg = malloc(1, sizeof(CAN_msg));
-			//memcpy(msg, &msg_heart_beat, sizeof(CAN_msg));
-			os_mbx_send (CAN_send_mailbox, &msg_heart_beat, 0xffff);
+			msg_heart_beat = _calloc_box (mpool);
+			//{ 1, {IPI, 0x83, 0x01, 0xFF, 0x02, 0x00, 0x00, 0x00}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+			msg_heart_beat->id = 1;
+			msg_heart_beat->data[0] = IPI;
+			msg_heart_beat->data[1] = 0x83;
+			msg_heart_beat->data[2] = 0x01;
+			msg_heart_beat->data[3] = ID_Num;
+			msg_heart_beat->data[4] = 0x02;
+			//msg_error->data[7] = MSG_END;
+			msg_heart_beat->len = 5;
+			msg_heart_beat->ch = 2;
+			msg_heart_beat->format = STANDARD_FORMAT;
+			msg_heart_beat->type = DATA_FRAME;
+			os_mbx_send (CAN_send_mailbox, msg_heart_beat, 0xffff);
 		}
 	}
 }

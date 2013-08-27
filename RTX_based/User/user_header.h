@@ -12,6 +12,8 @@
 #define SWIT_INT_THRESHOLD		4
 
 #define IPI						0x20
+#define MSG_CONTINUE			0xFD
+#define MSG_END					0xFE
 
 #define ERROR_LIGHT				0x01
 #define ERROR_SWIT_CLOSE		0x02
