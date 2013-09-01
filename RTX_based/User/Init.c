@@ -135,12 +135,6 @@ void NVIC_Configuration(void)
   //NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;   
   //NVIC_Init(&NVIC_Initstructure); 
     
-  //EXTIÖÐ¶Ïlxb
-    NVIC_Initstructure.NVIC_IRQChannel = EXTI0_IRQn;
-    NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
-    NVIC_Init(&NVIC_Initstructure); 
 }
 
 /*******************************************************************************
@@ -833,6 +827,25 @@ void SWITs_Enable(u8 enable)
     NVIC_Init(&NVIC_Initstructure); 
 
     NVIC_Initstructure.NVIC_IRQChannel = EXTI15_10_IRQn;
+	if(enable)
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;
+	}
+	else
+	{
+		NVIC_Initstructure.NVIC_IRQChannelCmd = DISABLE;
+	}
+    NVIC_Initstructure.NVIC_IRQChannelPreemptionPriority = 0;
+    NVIC_Initstructure.NVIC_IRQChannelSubPriority = 2;
+    NVIC_Init(&NVIC_Initstructure); 
+}
+
+void AC_Detect_Enable(u8 enable)
+{
+	NVIC_InitTypeDef NVIC_Initstructure;
+
+	//EXTI interrupts for AC detector
+    NVIC_Initstructure.NVIC_IRQChannel = EXTI0_IRQn;
 	if(enable)
 	{
 		NVIC_Initstructure.NVIC_IRQChannelCmd = ENABLE;

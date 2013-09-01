@@ -7,14 +7,19 @@
 #define EVT_CONFLICT_ANALYSIS	0x0010
 #define EVT_ADC_DONE			0x0020
 #define EVT_SEND_HEART_BEAT		0x0040
+#define EVT_AC_DETECTION		0x0080
 
 #define ADC_THRESHOLD			1000
 #define SWIT_INT_THRESHOLD		4
+#define AC_DETECT_INT_THRESHOLD	2
+#define CONFLICT_BUFFER_MAX		6
 
 #define IPI						0x20
 #define MSG_CONTINUE			0xFD
 #define MSG_END					0xFE
 
+#define NO_ERROR				0x00
 #define ERROR_LIGHT				0x01
 #define ERROR_SWIT_CLOSE		0x02
 #define ERROR_SWIT_OPEN			0x03
+#define ERROR_NO_AC_POWER		0x04
