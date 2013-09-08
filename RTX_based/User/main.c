@@ -55,6 +55,13 @@ u8 AC_power_exist = 1;
 u32 ADC_minute_sum[12] = {0};
 u16 ADC_minute_count[12] = {0};
 
+u16 timer_count = 0;// start delay when booting
+
+unsigned char read_ID_addr()
+{
+	return ((GPIO_ReadInputData(GPIOD)>>9)&0x7F);
+}
+
 int main (void)
 {
 	os_sys_init(init);
@@ -64,6 +71,8 @@ __task void init (void)
 {
 	Device_Init();
 	
+	ID_Num = read_ID_addr();
+
 	os_mbx_init (CAN_send_mailbox, sizeof(CAN_send_mailbox));
 	_init_box (mpool, sizeof(mpool), sizeof(CAN_msg));
 	os_mut_init(mutex_ADC_minute);
@@ -92,7 +101,7 @@ __task void task_send_CAN(void)
 {
 	void *msg;
 
-	CAN_init(1, 1000000);               /* CAN controller 1 init, 1000 kbit/s   */
+	CAN_init(1, 100000);               /* CAN controller 1 init, 1000 kbit/s   */
 	CAN_rx_object (1, 2,  33, DATA_TYPE | STANDARD_TYPE); /* Enable reception */
                                        /* of message on controller 1, channel */
                                        /* is not used for STM32 (can be set to*/
@@ -261,26 +270,29 @@ __task void task_lamp_ctl(void)
 				// send a heart beat
 				os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 				
-				if (!(Last_error & 0x8000))
+				if(timer_count>=50)//for AC loss, error msg can not be sent until 10s after booting
 				{
-					msg_error = _calloc_box (mpool);
-					//						Line_num  ID_Num	  bad_light_num	  error_type
-					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
-					msg_error->id = 1;
-					msg_error->data[0] = IPI;
-					msg_error->data[1] = 0xD2;
-					msg_error->data[3] = 0x01;
-					msg_error->data[4] = ID_Num;
-					msg_error->data[7] = MSG_END;
-					msg_error->len = sizeof(msg_error->data);
-					msg_error->ch = 2;
-					msg_error->format = STANDARD_FORMAT;
-					msg_error->type = DATA_FRAME;
-					
-					msg_error->data[6] = ERROR_NO_AC_POWER;
+					if (!(Last_error & 0x8000))
+					{
+						msg_error = _calloc_box (mpool);
+						//						Line_num  ID_Num	  bad_light_num	  error_type
+						//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+						msg_error->id = 1;
+						msg_error->data[0] = IPI;
+						msg_error->data[1] = 0xD2;
+						msg_error->data[3] = 0x01;
+						msg_error->data[4] = ID_Num;
+						msg_error->data[7] = MSG_END;
+						msg_error->len = sizeof(msg_error->data);
+						msg_error->ch = 2;
+						msg_error->format = STANDARD_FORMAT;
+						msg_error->type = DATA_FRAME;
 
-					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
-					Last_error |= 0x8000;
+						msg_error->data[6] = ERROR_NO_AC_POWER;
+
+						os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+						Last_error |= 0x8000;
+					}
 				}
 
 			}
@@ -324,6 +336,8 @@ __task void task_red_led_flash(void)
 	{
 		os_itv_wait ();
 		
+		if(timer_count<50) timer_count++;//count for 10s when booting
+
 		if (!Work_normal)
 		{
 			state = (BitAction)(1 - state);
@@ -432,23 +446,23 @@ __task void task_conflict_monitor(void)
 			else
 			{
 				// if it recovers from a conflict
-				if(!Work_normal)
-				{
-					msg_recovered = _calloc_box (mpool);
-					//{ 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
-					msg_recovered->id = 1;
-					msg_recovered->data[0] = IPI;
-					msg_recovered->data[1] = 0xD2;
-					msg_recovered->data[7] = MSG_END;
-					msg_recovered->len = sizeof(msg_recovered->data);
-					msg_recovered->ch = 2;
-					msg_recovered->format = STANDARD_FORMAT;
-					msg_recovered->type = DATA_FRAME;
-					
-					os_mbx_send(CAN_send_mailbox, msg_recovered, 0xffff);
-					Work_normal = 1;
-					Last_error = 0;
-				}
+// 				if(!Work_normal)
+// 				{
+// 					msg_recovered = _calloc_box (mpool);
+// 					//{ 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+// 					msg_recovered->id = 1;
+// 					msg_recovered->data[0] = IPI;
+// 					msg_recovered->data[1] = 0xD2;
+// 					msg_recovered->data[7] = MSG_END;
+// 					msg_recovered->len = sizeof(msg_recovered->data);
+// 					msg_recovered->ch = 2;
+// 					msg_recovered->format = STANDARD_FORMAT;
+// 					msg_recovered->type = DATA_FRAME;
+//
+// 					os_mbx_send(CAN_send_mailbox, msg_recovered, 0xffff);
+// 					Work_normal = 1;
+// 					Last_error = 0;
+// 				}
 				
 				os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 
