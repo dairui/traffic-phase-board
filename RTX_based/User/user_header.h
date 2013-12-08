@@ -1,4 +1,17 @@
 
+#define LIGHT_CH_4_G ((uint16_t)0x0008)  //GPIO_Pin_3
+#define LIGHT_CH_4_Y ((uint16_t)0x0010)  //GPIO_Pin_4
+#define LIGHT_CH_4_R ((uint16_t)0x0020)  //GPIO_Pin_5
+#define LIGHT_CH_3_G ((uint16_t)0x0040)  //GPIO_Pin_6
+#define LIGHT_CH_3_Y ((uint16_t)0x0080)  //GPIO_Pin_7
+#define LIGHT_CH_3_R ((uint16_t)0x0100)  //GPIO_Pin_8
+#define LIGHT_CH_2_G ((uint16_t)0x0200)  //GPIO_Pin_9
+#define LIGHT_CH_2_Y ((uint16_t)0x0400)  //GPIO_Pin_10
+#define LIGHT_CH_2_R ((uint16_t)0x0800)  //GPIO_Pin_11
+#define LIGHT_CH_1_G ((uint16_t)0x1000)  //GPIO_Pin_12
+#define LIGHT_CH_1_Y ((uint16_t)0x2000)  //GPIO_Pin_13
+#define LIGHT_CH_1_R ((uint16_t)0x4000)  //GPIO_Pin_14
+#define LIGHT_CH_ALL ((uint16_t)0x7FF8)
 
 #define EVT_DATA_1_RCVD			0x0001
 #define EVT_DATA_2_RCVD			0x0002

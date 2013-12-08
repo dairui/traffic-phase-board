@@ -20,6 +20,7 @@ OS_TID tid_conflict_analysis;
 OS_TID tid_heart_beat;
 OS_TID tid_current_report;
 OS_TID tid_AC_detector;
+OS_TID tid_watchdog;
 
 OS_MUT mutex_ADC_minute;
 
@@ -37,6 +38,7 @@ __task void task_conflict_analysis(void);
 __task void task_heart_beat(void);
 __task void task_current_report(void);
 __task void task_AC_detector(void);
+__task void task_watchdog(void);
 
 int test_n[16] = {0};
 u8 Lights_status_1[3] = {0};
@@ -59,7 +61,7 @@ u16 timer_count = 0;// start delay when booting
 
 unsigned char read_ID_addr()
 {
-	return ((GPIO_ReadInputData(GPIOD)>>9)&0x7F);
+	return ((GPIO_ReadInputData(GPIOD)>>9)&0x3F);
 }
 
 int main (void)
@@ -78,8 +80,8 @@ __task void init (void)
 	os_mut_init(mutex_ADC_minute);
 
 	// init lights all red
-	GPIO_WriteBit(GPIOB, GPIO_Pin_3|GPIO_Pin_4|GPIO_Pin_5|GPIO_Pin_6|GPIO_Pin_7|GPIO_Pin_8|GPIO_Pin_9|GPIO_Pin_10|GPIO_Pin_11|GPIO_Pin_12|GPIO_Pin_13|GPIO_Pin_14, Bit_RESET);
-	GPIO_WriteBit(GPIOB, GPIO_Pin_3|GPIO_Pin_6|GPIO_Pin_9|GPIO_Pin_12, Bit_SET);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_ALL, Bit_RESET);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_1_R|LIGHT_CH_2_R|LIGHT_CH_3_R|LIGHT_CH_4_R, Bit_SET);
 	// turn off 2 led indicators
 	GPIO_WriteBit(GPIOD, GPIO_Pin_1|GPIO_Pin_2, Bit_SET);
 	
@@ -93,6 +95,7 @@ __task void init (void)
 	tid_AC_detector = os_tsk_create(task_AC_detector, 2);
 	tid_send_CAN = os_tsk_create(task_send_CAN, 2);
 	tid_recv_CAN = os_tsk_create(task_recv_CAN, 2);
+	tid_watchdog = os_tsk_create(task_watchdog, 2);
 	
 	os_tsk_delete_self();
 }
@@ -101,7 +104,7 @@ __task void task_send_CAN(void)
 {
 	void *msg;
 
-	CAN_init(1, 100000);               /* CAN controller 1 init, 1000 kbit/s   */
+	CAN_init(1, 100000);               /* CAN controller 1 init, 100 kbit/s   */
 	CAN_rx_object (1, 2,  33, DATA_TYPE | STANDARD_TYPE); /* Enable reception */
                                        /* of message on controller 1, channel */
                                        /* is not used for STM32 (can be set to*/
@@ -209,41 +212,41 @@ void Pick_channels(void)
 
 void Update_lights(void)
 {
-	//Channle0_Red
-	GPIO_WriteBit(GPIOB, GPIO_Pin_3, (BitAction)Picked_lights_status[0]);
-
-	//Channle0_Yellow
-	GPIO_WriteBit(GPIOB, GPIO_Pin_4, (BitAction)Picked_lights_status[4]);
-
-	//Channle0_Green
-	GPIO_WriteBit(GPIOB, GPIO_Pin_5, (BitAction)Picked_lights_status[8]);
-
 	//Channle1_Red
-	GPIO_WriteBit(GPIOB, GPIO_Pin_6, (BitAction)Picked_lights_status[1]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_1_R, (BitAction)Picked_lights_status[0]);
 
 	//Channle1_Yellow
-	GPIO_WriteBit(GPIOB, GPIO_Pin_7, (BitAction)Picked_lights_status[5]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_1_Y, (BitAction)Picked_lights_status[4]);
 
 	//Channle1_Green
-	GPIO_WriteBit(GPIOB, GPIO_Pin_8, (BitAction)Picked_lights_status[9]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_1_G, (BitAction)Picked_lights_status[8]);
 
 	//Channle2_Red
-	GPIO_WriteBit(GPIOB, GPIO_Pin_9, (BitAction)Picked_lights_status[2]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_2_R, (BitAction)Picked_lights_status[1]);
 
 	//Channle2_Yellow
-	GPIO_WriteBit(GPIOB, GPIO_Pin_10, (BitAction)Picked_lights_status[6]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_2_Y, (BitAction)Picked_lights_status[5]);
 
 	//Channle2_Green
-	GPIO_WriteBit(GPIOB, GPIO_Pin_11, (BitAction)Picked_lights_status[10]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_2_G, (BitAction)Picked_lights_status[9]);
 
 	//Channle3_Red
-	GPIO_WriteBit(GPIOB, GPIO_Pin_12, (BitAction)Picked_lights_status[3]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_3_R, (BitAction)Picked_lights_status[2]);
 
 	//Channle3_Yellow
-	GPIO_WriteBit(GPIOB, GPIO_Pin_13, (BitAction)Picked_lights_status[7]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_3_Y, (BitAction)Picked_lights_status[6]);
 
 	//Channle3_Green
-	GPIO_WriteBit(GPIOB, GPIO_Pin_14, (BitAction)Picked_lights_status[11]);
+	GPIO_WriteBit(GPIOB, LIGHT_CH_3_G, (BitAction)Picked_lights_status[10]);
+
+	//Channle4_Red
+	GPIO_WriteBit(GPIOB, LIGHT_CH_4_R, (BitAction)Picked_lights_status[3]);
+
+	//Channle4_Yellow
+	GPIO_WriteBit(GPIOB, LIGHT_CH_4_Y, (BitAction)Picked_lights_status[7]);
+
+	//Channle4_Green
+	GPIO_WriteBit(GPIOB, LIGHT_CH_4_G, (BitAction)Picked_lights_status[11]);
 }
 
 __task void task_lamp_ctl(void)
@@ -277,7 +280,7 @@ __task void task_lamp_ctl(void)
 						msg_error = _calloc_box (mpool);
 						//						Line_num  ID_Num	  bad_light_num	  error_type
 						//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
-						msg_error->id = 1;
+						msg_error->id = ID_Num;
 						msg_error->data[0] = IPI;
 						msg_error->data[1] = 0xD2;
 						msg_error->data[3] = 0x01;
@@ -450,7 +453,7 @@ __task void task_conflict_monitor(void)
 // 				{
 // 					msg_recovered = _calloc_box (mpool);
 // 					//{ 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
-// 					msg_recovered->id = 1;
+// 					msg_recovered->id = ID_Num;
 // 					msg_recovered->data[0] = IPI;
 // 					msg_recovered->data[1] = 0xD2;
 // 					msg_recovered->data[7] = MSG_END;
@@ -520,7 +523,7 @@ __task void task_conflict_analysis(void)
 					msg_error = _calloc_box (mpool);
 					//						Line_num	 ID_Num	  bad_light_num	  error_type
 					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
-					msg_error->id = 1;
+					msg_error->id = ID_Num;
 					msg_error->data[0] = IPI;
 					msg_error->data[1] = 0xD2;
 					msg_error->data[3] = 0x01;
@@ -581,7 +584,7 @@ __task void task_heart_beat(void)
 		{
 			msg_heart_beat = _calloc_box (mpool);
 			//{ 1, {IPI, 0x83, 0x01, 0xFF, 0x02, 0x00, 0x00, 0x00}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
-			msg_heart_beat->id = 1;
+			msg_heart_beat->id = ID_Num;
 			msg_heart_beat->data[0] = IPI;
 			msg_heart_beat->data[1] = 0x83;
 			msg_heart_beat->data[2] = 0x01;
@@ -726,6 +729,34 @@ __task void task_AC_detector(void)
 		}
 
 		test_n[15] = 0;
+
+	}
+}
+
+void poll_sleep(int ms)
+{
+	int i;
+	for (i =0; i<1000*ms; i++)
+	{
+		;
+	}
+}
+
+__task void task_watchdog(void)
+{
+	os_itv_set (50); // to serve the dog every 0.5s
+
+	while (1)
+	{
+		os_itv_wait();
+
+		// start serving the watchdog.
+		// send a high level pulse
+		GPIO_WriteBit(GPIOD, GPIO_Pin_4, Bit_SET);
+		// we can't use os_dlay_wait() here because we've already used os_itv_set() in this task.
+		poll_sleep(100);
+
+		GPIO_WriteBit(GPIOD, GPIO_Pin_4, Bit_RESET);
 
 	}
 }
