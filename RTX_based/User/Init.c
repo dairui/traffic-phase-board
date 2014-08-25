@@ -180,6 +180,12 @@ void GPIO_Configuration(void)
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
 	GPIO_Init(GPIOC, &GPIO_InitStructure);
 	
+	//MCU-NL27 ¼ì²â±£ÏÕµçÂ·
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_7;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+	GPIO_Init(GPIOC, &GPIO_InitStructure);
+	
 	/* Disable the Serial Wire Jtag Debug Port SWJ-DP */
 	GPIO_PinRemapConfig(GPIO_Remap_SWJ_JTAGDisable, ENABLE);
 		
@@ -204,6 +210,13 @@ void GPIO_Configuration(void)
 
 	//LED1~3
 	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_1 | GPIO_Pin_2 | GPIO_Pin_3;
+	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
+	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
+	GPIO_Init(GPIOD, &GPIO_InitStructure);
+	
+	
+	//hard watch dog
+	GPIO_InitStructure.GPIO_Pin = GPIO_Pin_4;
 	GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
 	GPIO_InitStructure.GPIO_Mode = GPIO_Mode_Out_PP;
 	GPIO_Init(GPIOD, &GPIO_InitStructure);
@@ -439,20 +452,20 @@ void ADC_Configuration_lxb(void)
   ADC_Init(ADC1, &ADC_InitStructure);
 
   /* ADC1 regular ADC_Channel_0~3(ADC_INPUT1~4) configuration */ 
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_9, 1, ADC1_SampleTime_cicr);
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_6, 2,  ADC1_SampleTime_cicr);
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_3, 3,  ADC1_SampleTime_cicr);	
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_0, 4,  ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_9, 12, ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_6, 11,  ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_3, 10,  ADC1_SampleTime_cicr);	
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_0, 9,  ADC1_SampleTime_cicr);
   
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_10, 5, ADC1_SampleTime_cicr);
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_7, 6,  ADC1_SampleTime_cicr);
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_4, 7,  ADC1_SampleTime_cicr);  
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_1, 8,  ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_10, 8, ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_7, 7,  ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_4, 6,  ADC1_SampleTime_cicr);  
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_1, 5,  ADC1_SampleTime_cicr);
 
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_11, 9, ADC1_SampleTime_cicr);
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_8, 10,  ADC1_SampleTime_cicr);
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_5, 11,  ADC1_SampleTime_cicr);
-  ADC_RegularChannelConfig(ADC1, ADC_Channel_2, 12,  ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_11, 4, ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_8, 3,  ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_5, 2,  ADC1_SampleTime_cicr);
+  ADC_RegularChannelConfig(ADC1, ADC_Channel_2, 1,  ADC1_SampleTime_cicr);
   
   /* Enable ADC1 DMA */
   ADC_DMACmd(ADC1, ENABLE);

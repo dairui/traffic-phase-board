@@ -13,6 +13,7 @@
 #define LIGHT_CH_1_R ((uint16_t)0x4000)  //GPIO_Pin_14
 #define LIGHT_CH_ALL ((uint16_t)0x7FF8)
 
+
 #define EVT_DATA_1_RCVD			0x0001
 #define EVT_DATA_2_RCVD			0x0002
 #define EVT_DATA_3_RCVD			0x0004
@@ -22,10 +23,10 @@
 #define EVT_SEND_HEART_BEAT		0x0040
 #define EVT_AC_DETECTION		0x0080
 
-#define ADC_THRESHOLD			270
+#define ADC_THRESHOLD			20
 #define SWIT_INT_THRESHOLD		4
 #define AC_DETECT_INT_THRESHOLD	2
-#define CONFLICT_BUFFER_MAX		8
+#define CONFLICT_BUFFER_MAX		6
 
 #define IPI						0x20
 #define MSG_CONTINUE			0xFD
@@ -36,3 +37,6 @@
 #define ERROR_SWIT_CLOSE		0x02
 #define ERROR_SWIT_OPEN			0x03
 #define ERROR_NO_AC_POWER		0x04
+#define RED_CONFLICT				0x05
+#define GREEN_CONFLICT			0x06
+#define YELLOW_CONFLICT			0x07

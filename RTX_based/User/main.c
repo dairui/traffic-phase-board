@@ -20,7 +20,6 @@ OS_TID tid_conflict_analysis;
 OS_TID tid_heart_beat;
 OS_TID tid_current_report;
 OS_TID tid_AC_detector;
-OS_TID tid_watchdog;
 
 OS_MUT mutex_ADC_minute;
 
@@ -38,7 +37,6 @@ __task void task_conflict_analysis(void);
 __task void task_heart_beat(void);
 __task void task_current_report(void);
 __task void task_AC_detector(void);
-__task void task_watchdog(void);
 
 int test_n[16] = {0};
 u8 Lights_status_1[3] = {0};
@@ -57,13 +55,30 @@ u8 AC_power_exist = 1;
 u32 ADC_minute_sum[12] = {0};
 u16 ADC_minute_count[12] = {0};
 
-u16 timer_count = 0;// start delay when booting
+u16 timer_count = 0;//开机启动计数器
+
+/* 黄灯绿灯故障屏蔽码 */
+#define GY_ERR_MASK			0xF00
 
 unsigned char read_ID_addr()
 {
 	return ((GPIO_ReadInputData(GPIOD)>>9)&0x3F);
 }
-
+/*******************************************************************************
+* Function Name  : GPIO_PinReverse
+* Description    : GPIO位取反
+* Input          : GPIO口：GPIO_TypeDef* GPIOx
+* Output         : GPIO位：uint16_t GPIO_Pin
+* Return         : None
+*******************************************************************************/
+void GPIO_PinReverse(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin)
+{
+    /* Check the parameters */
+    assert_param(IS_GPIO_ALL_PERIPH(GPIOx));
+    assert_param(IS_GPIO_PIN(GPIO_Pin));
+    
+    GPIOx->ODR ^= GPIO_Pin;
+}
 int main (void)
 {
 	os_sys_init(init);
@@ -74,14 +89,14 @@ __task void init (void)
 	Device_Init();
 	
 	ID_Num = read_ID_addr();
-
+	
 	os_mbx_init (CAN_send_mailbox, sizeof(CAN_send_mailbox));
 	_init_box (mpool, sizeof(mpool), sizeof(CAN_msg));
 	os_mut_init(mutex_ADC_minute);
 
 	// init lights all red
-	GPIO_WriteBit(GPIOB, LIGHT_CH_ALL, Bit_RESET);
-	GPIO_WriteBit(GPIOB, LIGHT_CH_1_R|LIGHT_CH_2_R|LIGHT_CH_3_R|LIGHT_CH_4_R, Bit_SET);
+	GPIO_WriteBit(GPIOB, GPIO_Pin_3|GPIO_Pin_4|GPIO_Pin_5|GPIO_Pin_6|GPIO_Pin_7|GPIO_Pin_8|GPIO_Pin_9|GPIO_Pin_10|GPIO_Pin_11|GPIO_Pin_12|GPIO_Pin_13|GPIO_Pin_14, Bit_RESET);
+	GPIO_WriteBit(GPIOB, GPIO_Pin_14|GPIO_Pin_11|GPIO_Pin_8|GPIO_Pin_5, Bit_SET);
 	// turn off 2 led indicators
 	GPIO_WriteBit(GPIOD, GPIO_Pin_1|GPIO_Pin_2, Bit_SET);
 	
@@ -91,11 +106,12 @@ __task void init (void)
 	tid_conflict_monitor = os_tsk_create(task_conflict_monitor, 2);
 	tid_conflict_analysis = os_tsk_create(task_conflict_analysis, 2);
 	tid_heart_beat = os_tsk_create(task_heart_beat, 2);
-	tid_current_report = os_tsk_create(task_current_report, 2);
+// 	tid_current_report = os_tsk_create(task_current_report, 2);
 	tid_AC_detector = os_tsk_create(task_AC_detector, 2);
-	tid_send_CAN = os_tsk_create(task_send_CAN, 2);
+	tid_send_CAN = os_tsk_create(task_send_CAN, 10);
 	tid_recv_CAN = os_tsk_create(task_recv_CAN, 2);
-	tid_watchdog = os_tsk_create(task_watchdog, 2);
+	
+//	GPIO_SetBits(GPIOC,GPIO_Pin_7);
 	
 	os_tsk_delete_self();
 }
@@ -104,7 +120,7 @@ __task void task_send_CAN(void)
 {
 	void *msg;
 
-	CAN_init(1, 100000);               /* CAN controller 1 init, 100 kbit/s   */
+	CAN_init(1, 500000);               /* CAN controller 1 init, 1000 kbit/s   */
 	CAN_rx_object (1, 2,  33, DATA_TYPE | STANDARD_TYPE); /* Enable reception */
                                        /* of message on controller 1, channel */
                                        /* is not used for STM32 (can be set to*/
@@ -208,6 +224,7 @@ void Pick_channels(void)
 			Picked_lights_status[k++] = (Lights_status_2[i] & 0x80) >> 7;
 			Picked_lights_status_map = (Picked_lights_status_map << 4) | (Lights_status_2[i] >> 4);
 		}
+	
 }
 
 void Update_lights(void)
@@ -266,36 +283,35 @@ __task void task_lamp_ctl(void)
 		{
 			Pick_channels();
 			Update_lights();
-			
 			if (!AC_power_exist)
 			{
 				// no AC power
 				// send a heart beat
 				os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 				
-				if(timer_count>=50)//for AC loss, error msg can not be sent until 10s after booting
+				if(timer_count>=50)//开机启动10s以后，才允许错误信息发送==针对交流电丢失
 				{
-					if (!(Last_error & 0x8000))
-					{
-						msg_error = _calloc_box (mpool);
-						//						Line_num  ID_Num	  bad_light_num	  error_type
-						//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
-						msg_error->id = ID_Num;
-						msg_error->data[0] = IPI;
-						msg_error->data[1] = 0xD2;
-						msg_error->data[3] = 0x01;
-						msg_error->data[4] = ID_Num;
-						msg_error->data[7] = MSG_END;
-						msg_error->len = sizeof(msg_error->data);
-						msg_error->ch = 2;
-						msg_error->format = STANDARD_FORMAT;
-						msg_error->type = DATA_FRAME;
+// 					if (!(Last_error & 0x8000))
+// 					{
+// 						msg_error = _calloc_box (mpool);
+// 						//						Line_num  ID_Num	  bad_light_num	  error_type
+// 						//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+// 						msg_error->id = 1;
+// 						msg_error->data[0] = IPI;
+// 						msg_error->data[1] = 0xD2;
+// 						msg_error->data[3] = 0x01;
+// 						msg_error->data[4] = ID_Num;
+// 						msg_error->data[7] = MSG_END;
+// 						msg_error->len = sizeof(msg_error->data);
+// 						msg_error->ch = 2;
+// 						msg_error->format = STANDARD_FORMAT;
+// 						msg_error->type = DATA_FRAME;
+// 						
+// 						msg_error->data[6] = ERROR_NO_AC_POWER;
 
-						msg_error->data[6] = ERROR_NO_AC_POWER;
-
-						os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
-						Last_error |= 0x8000;
-					}
+// 						os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+// 						Last_error |= 0x8000;
+// 					}
 				}
 
 			}
@@ -316,6 +332,7 @@ __task void task_green_led_flash(void)
 	while (1)
 	{
 		os_itv_wait ();
+		
 		
 		if (Work_normal)
 		{
@@ -339,8 +356,9 @@ __task void task_red_led_flash(void)
 	{
 		os_itv_wait ();
 		
-		if(timer_count<50) timer_count++;//count for 10s when booting
-
+		GPIO_PinReverse(GPIOD, GPIO_Pin_4);//hard_watchdog
+		if(timer_count<50) timer_count++;//开机计时10s
+		
 		if (!Work_normal)
 		{
 			state = (BitAction)(1 - state);
@@ -353,6 +371,15 @@ __task void task_red_led_flash(void)
 	}
 }
 
+
+u16 SWITs_status_map;
+u16 xx;
+
+U16 conflict_count[12U] = {0U};
+U8  conflict_flag = 0U;
+U16  cal_conflict_map = 0U;
+
+__IO uint16_t  ADC_threshold[12] = {20,20,20,20,20,20,20,20,20,20,20,20};		
 __task void task_conflict_monitor(void)
 {
 	OS_RESULT result;
@@ -362,6 +389,7 @@ __task void task_conflict_monitor(void)
 	CAN_msg *msg_recovered;
 	u8 Conflict_buffer = 0;
 
+	
 	/* Initialize message  = { ID, {data[0] .. data[7]}, LEN, CHANNEL, FORMAT, TYPE } */
 	//CAN_msg msg_recovered = { 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
 
@@ -403,12 +431,15 @@ __task void task_conflict_monitor(void)
 			for (i=0; i<12; i++)
 			{
 				temp = (ADC_samples[i] + ADC_samples[12 + i] + ADC_samples[24 + i]) / 3;
-				if (temp < ADC_THRESHOLD)
+				
+				if (temp < ADC_threshold[i]*0.5)//ADC_THRESHOLD)
 				{
 					ADC_status_map <<= 1;
 				}
 				else
 				{
+					ADC_threshold[i] = (ADC_threshold[i]+temp)/2;
+					
 					ADC_status_map = (ADC_status_map << 1) | 0x0001;
 					
 					os_mut_wait (mutex_ADC_minute, 0xffff);
@@ -420,82 +451,6 @@ __task void task_conflict_monitor(void)
 				}
 			}
 			
-			// calculate the conflict map 
-			conflict_map = Picked_lights_status_map ^ ADC_status_map;
-			// consider the Vehicle_channels and Walker_channels
-			conflict_map &= ~((u16)Walker_channels << 4);
-			conflict_map &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);
-			
-			// use Error_buffer to hold on initial errors until the maximum count is reached
-			if (conflict_map)
-			{
-				if (Conflict_buffer < CONFLICT_BUFFER_MAX)
-				{
-					Conflict_buffer++;
-				}
-			}
-			else if (Conflict_buffer > 0)
-			{
-				Conflict_buffer--;
-			}
-			
-			// conflict happens
-			if (Conflict_buffer == CONFLICT_BUFFER_MAX)
-			{			
-				Work_normal = 0;
-				// handle conflict
-				os_evt_set(EVT_CONFLICT_ANALYSIS, tid_conflict_analysis);
-			}
-			else
-			{
-				// if it recovers from a conflict
-// 				if(!Work_normal)
-// 				{
-// 					msg_recovered = _calloc_box (mpool);
-// 					//{ 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
-// 					msg_recovered->id = ID_Num;
-// 					msg_recovered->data[0] = IPI;
-// 					msg_recovered->data[1] = 0xD2;
-// 					msg_recovered->data[7] = MSG_END;
-// 					msg_recovered->len = sizeof(msg_recovered->data);
-// 					msg_recovered->ch = 2;
-// 					msg_recovered->format = STANDARD_FORMAT;
-// 					msg_recovered->type = DATA_FRAME;
-//
-// 					os_mbx_send(CAN_send_mailbox, msg_recovered, 0xffff);
-// 					Work_normal = 1;
-// 					Last_error = 0;
-// 				}
-				
-				os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
-
-			}
-		}
-	}
-}
-
-__task void task_conflict_analysis(void)
-{
-	OS_RESULT result;
-	u16 SWITs_status_map;
-	CAN_msg *msg_error;
-	int i;
-
-	//										   Line_num	 ID_Num	  bad_light_num	  error_type
-	//CAN_msg msg_error = { 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
-
-	//msg_error.data[4] = ID_Num;
-
-	while (1)
-	{
-		// wait for event to start a conflict analysis
-		result = os_evt_wait_and (EVT_CONFLICT_ANALYSIS, 0xffff);
-		if (result == OS_R_TMO) 
-		{
-			//printf("Event wait timeout.\n");
-		}
-		else if(conflict_map != Last_error)
-		{
 			// get SWITs status map
 			SWITs_Enable(1);
 			os_dly_wait(6);
@@ -512,51 +467,314 @@ __task void task_conflict_analysis(void)
 				{
 					SWITs_status_map <<= 1;
 				}
+//				test_n[i] = 0;
+			}
+			for (i=0; i<12; i++)
+			{
 				test_n[i] = 0;
 			}
+			ADC_status_map &= ~((u16)Walker_channels << 4);
+			ADC_status_map &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);
+			SWITs_status_map &= ~((u16)Walker_channels << 4);
+			SWITs_status_map &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);
 			
+			if(ADC_status_map != SWITs_status_map)
+			{
+				conflict_map = (ADC_status_map^SWITs_status_map);
+			}
+			else
+			{
+				// calculate the conflict map 
+				conflict_map = Picked_lights_status_map ^ ADC_status_map;
+				// consider the Vehicle_channels and Walker_channels
+				conflict_map &= ~((u16)Walker_channels << 4);
+				conflict_map &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);
+			}
+			
+			
+			// use Error_buffer to hold on initial errors until the maximum count is reached
+//			if (conflict_map)
+//			{
+//				if (Conflict_buffer < CONFLICT_BUFFER_MAX)
+//				{
+//					Conflict_buffer++;
+//				}
+//			}
+//			else if (Conflict_buffer > 0)
+//			{
+//				Conflict_buffer=0;
+//			}
+			
+			cal_conflict_map = 0;
+			for(i=0;i<12;i++)
+			{
+				if(((conflict_map>>i)&0x01) == 1)
+				{
+					conflict_count[i]++;
+				}
+				else
+				{
+					conflict_count[i] = 0;
+				}
+				
+				if(conflict_count[i] == CONFLICT_BUFFER_MAX)
+				{
+					conflict_flag = 1;
+					cal_conflict_map |= (U16)((U16)1<<i);
+				}
+			}
+			
+			// conflict happens
+			if (conflict_flag == 1)
+			{		
+				conflict_flag = 0;
+				
+				for(i=0;i<12;i++)
+				{
+					conflict_count[i] = 0;
+				}
+// 				os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
+				// handle conflict
+				os_evt_set(EVT_CONFLICT_ANALYSIS, tid_conflict_analysis);
+			}
+			else
+			{
+				// if it recovers from a conflict
+// 				if(!Work_normal)
+// 				{
+// 					msg_recovered = _calloc_box (mpool);
+// 					//{ 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+// 					msg_recovered->id = 1;
+// 					msg_recovered->data[0] = IPI;
+// 					msg_recovered->data[1] = 0xD2;
+// 					msg_recovered->data[7] = MSG_END;
+// 					msg_recovered->len = sizeof(msg_recovered->data);
+// 					msg_recovered->ch = 2;
+// 					msg_recovered->format = STANDARD_FORMAT;
+// 					msg_recovered->type = DATA_FRAME;
+// 					
+// 					os_mbx_send(CAN_send_mailbox, msg_recovered, 0xffff);
+// 					Work_normal = 1;
+// 					Last_error = 0;
+// 				}
+				
+				os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
+
+			}
+		}
+	}
+}
+
+U8  err_cnt[12] = {0};
+__task void task_conflict_analysis(void)
+{
+	OS_RESULT result;
+// 	u16 SWITs_status_map;
+	CAN_msg *msg_error;
+	int i;
+	
+	U8 red_err_cnt = 0;
+	U8 err_type = 0;
+	//										   Line_num	 ID_Num	  bad_light_num	  error_type
+	//CAN_msg msg_error = { 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
+
+	//msg_error.data[4] = ID_Num;
+
+	while (1)
+	{
+		// wait for event to start a conflict analysis
+		result = os_evt_wait_and (EVT_CONFLICT_ANALYSIS, 0xffff);
+		if (result == OS_R_TMO) 
+		{
+			//printf("Event wait timeout.\n");
+		}
+//////		else if(conflict_map != Last_error)
+//////		{
+//////			// check each conflict bit
+//////			for (i=0; i<12; i++)
+//////			{
+//////				if ((conflict_map >> i) & 0x0001)
+//////				{
+//////					msg_error = _calloc_box (mpool);
+//////					//						Line_num	 ID_Num	  bad_light_num	  error_type
+//////					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+//////					msg_error->id = ID_Num;
+//////					msg_error->data[0] = IPI;
+//////					msg_error->data[1] = 0xD2;
+//////					msg_error->data[3] = 0x01;
+//////					msg_error->data[4] = ID_Num;
+//////					msg_error->data[7] = MSG_END;
+//////					msg_error->len = sizeof(msg_error->data);
+//////					msg_error->ch = 2;
+//////					msg_error->format = STANDARD_FORMAT;
+//////					msg_error->type = DATA_FRAME;
+//////					
+//////					// specify bad_light_num and error_type
+//////					msg_error->data[5] = ((3-i/4)+3*(i%4));
+//////					
+//////					if (((Picked_lights_status_map^ADC_status_map) >> i) & 0x0001)
+//////					{
+//////						// SWIT short cut error
+//////						msg_error->data[6] = ERROR_SWIT_CLOSE;
+//////					}
+//////					else if (((Picked_lights_status_map ^SWITs_status_map) >> i) & 0x0001)
+//////					{
+//////						msg_error->data[6] = ERROR_LIGHT;
+//////					}
+//////					else
+//////					{
+//////						msg_error->data[6] = ERROR_SWIT_OPEN;
+//////					}
+//////					
+//////					/* 绿灯黄灯屏蔽故障检测 */
+//////					if(conflict_map&GY_ERR_MASK)
+//////						Last_error |= 0x4000;
+//////					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+//////					
+//////				}
+//////			}
+//////			Last_error = (Last_error & 0x4000) | conflict_map;
+//////		}
+		else if(cal_conflict_map != (Last_error&0xfff))
+		{
 			// check each conflict bit
 			for (i=0; i<12; i++)
 			{
-				if ((conflict_map >> i) & 0x0001)
+				if ((cal_conflict_map >> i) & 0x0001)
 				{
-					msg_error = _calloc_box (mpool);
-					//						Line_num	 ID_Num	  bad_light_num	  error_type
-					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
-					msg_error->id = ID_Num;
-					msg_error->data[0] = IPI;
-					msg_error->data[1] = 0xD2;
-					msg_error->data[3] = 0x01;
-					msg_error->data[4] = ID_Num;
-					msg_error->data[7] = MSG_END;
-					msg_error->len = sizeof(msg_error->data);
-					msg_error->ch = 2;
-					msg_error->format = STANDARD_FORMAT;
-					msg_error->type = DATA_FRAME;
+					err_cnt[i]++;
 					
-					// specify bad_light_num and error_type
-					msg_error->data[5] = ((i/4) << 4) | (i%4);
+					if((i/4) == 2)	//红灯
+					{
+						if(((Picked_lights_status_map >> i) & 0x0001) == 1)	//can下发红灯为亮
+						{
+							if(((ADC_status_map >> i) & 0x0001) == 0)					//ad检测电流为0
+							{
+								if(((SWITs_status_map >> i) & 0x0001) == 0)			//可控硅开路
+								{
+									err_type = ERROR_SWIT_OPEN;
+								}
+								else																						//红灯故障
+								{
+									err_type = ERROR_LIGHT;
+								}
+								Last_error |= 0x4000;													//黄闪
+							}
+						}
+						else																								//灭
+						{
+							if(((ADC_status_map >> i) & 0x0001) == 1)					//ad检测电流为1
+							{
+								if(((SWITs_status_map >> i) & 0x0001) == 1)			//可控硅短路
+								{
+									err_type = ERROR_SWIT_CLOSE;
+								}
+							}
+							else																						//红冲
+							{
+								err_type = RED_CONFLICT;
+							}
+						}
+						
+					}
+					else if((i/4) == 0)	//绿灯
+					{
+						if(((Picked_lights_status_map >> i) & 0x0001) == 1)	//can下发绿灯为亮
+						{
+							if(((ADC_status_map >> i) & 0x0001) == 0)					//ad检测电流为0
+							{
+								if(((SWITs_status_map >> i) & 0x0001) == 0)			//可控硅开路
+								{
+									err_type = ERROR_SWIT_OPEN;
+								}
+								else																						//绿灯故障
+								{
+									err_type = ERROR_LIGHT;
+								}
+							}
+						}
+						else																								//灭
+						{
+							if(((ADC_status_map >> i) & 0x0001) == 1)					//ad检测电流为1
+							{
+								if(((SWITs_status_map >> i) & 0x0001) == 1)			//可控硅短路
+								{
+									err_type = ERROR_SWIT_CLOSE;
+								}
+								
+							}
+							else																						//绿冲判断
+							{
+								//绿冲
+								Last_error |= 0x4000;												//黄闪
+								err_type = GREEN_CONFLICT;
+							}
+						}
+						
+					}
+					else if((i/4) == 1)	//黄灯
+					{
+						if(((Picked_lights_status_map >> i) & 0x0001) == 1)	//can下发黄灯为亮
+						{
+							if(((ADC_status_map >> i) & 0x0001) == 0)					//ad检测电流为0
+							{
+								if(((SWITs_status_map >> i) & 0x0001) == 0)			//可控硅开路
+								{
+									err_type = ERROR_SWIT_OPEN;
+								}
+								else																						//黄灯故障
+								{
+									err_type = ERROR_LIGHT;
+								}
+							}
+						}
+						else																								//灭
+						{
+							if(((ADC_status_map >> i) & 0x0001) == 1)					//ad检测电流为1
+							{
+								if(((SWITs_status_map >> i) & 0x0001) == 1)			//可控硅短路
+								{
+									err_type = ERROR_SWIT_CLOSE;
+								}
+							}
+							else																						//黄冲判断
+							{
+								err_type = YELLOW_CONFLICT;
+							}
+						}
+						
+					}
 					
-					if ((ADC_status_map >> i) & 0x0001)
+					if((err_type!=0)&&(err_cnt[i] >= 2))
 					{
-						// SWIT short cut error
-						msg_error->data[6] = ERROR_SWIT_CLOSE;
-					}
-					else if ((SWITs_status_map >> i) & 0x0001)
-					{
-						msg_error->data[6] = ERROR_LIGHT;
-						Last_error |= 0x4000;
-					}
-					else
-					{
-						msg_error->data[6] = ERROR_SWIT_OPEN;
-					}
-
-					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+						err_cnt[i] = 0;
+						
+						Work_normal = 0;
+						msg_error = _calloc_box (mpool);
+						//						Line_num	 ID_Num	  bad_light_num	  error_type
+						//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+						msg_error->id = ID_Num;
+						msg_error->data[0] = IPI;
+						msg_error->data[1] = 0xD2;
+						msg_error->data[3] = 0x01;
+						msg_error->data[4] = ID_Num;
+						msg_error->data[7] = MSG_END;
+						msg_error->len = sizeof(msg_error->data);
+						msg_error->ch = 2;
+						msg_error->format = STANDARD_FORMAT;
+						msg_error->type = DATA_FRAME;
+						
+						// specify bad_light_num and error_type
+						msg_error->data[5] = ((3-i/4)+3*(i%4));
 					
+						msg_error->data[6] = err_type;
+						err_type =0;
+						
+						Last_error = (Last_error & 0x4000) | conflict_map;
+						os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+					}				
 				}
 			}
-			Last_error = (Last_error & 0x4000) | conflict_map;
 		}
 		os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 
@@ -576,6 +794,7 @@ __task void task_heart_beat(void)
 	{
 		// wait for event to send a heart beat
 		result = os_evt_wait_and (EVT_SEND_HEART_BEAT, 0xffff);
+////		os_dly_wait (25);
 		if (result == OS_R_TMO) 
 		{
 			//printf("Event wait timeout.\n");
@@ -590,11 +809,8 @@ __task void task_heart_beat(void)
 			msg_heart_beat->data[2] = 0x01;
 			msg_heart_beat->data[3] = ID_Num;
 			msg_heart_beat->data[4] = 0x02;
-			if (!AC_power_exist)
-			{
-				msg_heart_beat->data[5] = ERROR_NO_AC_POWER;
-			}
-			else if ((Last_error & 0x4000))
+
+			if ((Last_error & 0x4000))
 			{
 				msg_heart_beat->data[5] = ERROR_LIGHT;
 			}
@@ -603,6 +819,7 @@ __task void task_heart_beat(void)
 			msg_heart_beat->ch = 2;
 			msg_heart_beat->format = STANDARD_FORMAT;
 			msg_heart_beat->type = DATA_FRAME;
+			os_dly_wait(ID_Num);
 			os_mbx_send (CAN_send_mailbox, msg_heart_beat, 0xffff);
 		}
 	}
@@ -729,34 +946,6 @@ __task void task_AC_detector(void)
 		}
 
 		test_n[15] = 0;
-
-	}
-}
-
-void poll_sleep(int ms)
-{
-	int i;
-	for (i =0; i<1000*ms; i++)
-	{
-		;
-	}
-}
-
-__task void task_watchdog(void)
-{
-	os_itv_set (50); // to serve the dog every 0.5s
-
-	while (1)
-	{
-		os_itv_wait();
-
-		// start serving the watchdog.
-		// send a high level pulse
-		GPIO_WriteBit(GPIOD, GPIO_Pin_4, Bit_SET);
-		// we can't use os_dlay_wait() here because we've already used os_itv_set() in this task.
-		poll_sleep(100);
-
-		GPIO_WriteBit(GPIOD, GPIO_Pin_4, Bit_RESET);
 
 	}
 }
