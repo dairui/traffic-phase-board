@@ -1,3 +1,7 @@
 RTX_based/Proj/obj/
 *.o
-
+*.bak
+*.map
+*.dep
+*.uvopt
+*.uvproj
