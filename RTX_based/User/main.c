@@ -107,7 +107,7 @@ __task void init (void)
 	tid_conflict_analysis = os_tsk_create(task_conflict_analysis, 2);
 	tid_heart_beat = os_tsk_create(task_heart_beat, 2);
 // 	tid_current_report = os_tsk_create(task_current_report, 2);
-	tid_AC_detector = os_tsk_create(task_AC_detector, 2);
+	tid_AC_detector = os_tsk_create(task_AC_detector, 5);
 	tid_send_CAN = os_tsk_create(task_send_CAN, 10);
 	tid_recv_CAN = os_tsk_create(task_recv_CAN, 2);
 	
