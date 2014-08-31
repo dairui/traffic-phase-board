@@ -379,15 +379,17 @@ U16 conflict_count[12U] = {0U};
 U8  conflict_flag = 0U;
 U16  cal_conflict_map = 0U;
 
-__IO uint16_t  ADC_threshold[12] = {20,20,20,20,20,20,20,20,20,20,20,20};		
+__IO int16_t  ADC_threshold[12] = {20,20,20,20,20,20,20,20,20,20,20,20};
+__IO int16_t  ADC_low_threshold[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
 __task void task_conflict_monitor(void)
 {
 	OS_RESULT result;
 	int i, j;
 	uint16_t ADC_samples[36];
-	uint16_t temp;
+	int16_t temp;
 	CAN_msg *msg_recovered;
 	u8 Conflict_buffer = 0;
+	u16 temp_status=0;
 
 	
 	/* Initialize message  = { ID, {data[0] .. data[7]}, LEN, CHANNEL, FORMAT, TYPE } */
@@ -425,14 +427,26 @@ __task void task_conflict_monitor(void)
 				}
 			}
 			// samples done
+
+			// update ADC_low_threshold[]
 			
+			temp_status = Picked_lights_status_map;
+			for (i=0; i<12; i++)
+			{
+				if (!(temp_status & 0x800)) // light is in off state
+				{
+					ADC_low_threshold[i] = ((ADC_low_threshold[i] + ADC_samples[i] + ADC_samples[12 + i] + ADC_samples[24 + i]) >> 2);
+				}
+				temp_status <<= 1;
+			}
+
 			// get the status map
 			ADC_status_map = 0;
 			for (i=0; i<12; i++)
 			{
 				temp = (ADC_samples[i] + ADC_samples[12 + i] + ADC_samples[24 + i]) / 3;
 				
-				if (temp < ADC_threshold[i]*0.5)//ADC_THRESHOLD)
+				if (abs(temp - ADC_low_threshold[i]) < abs(ADC_threshold[i] - temp))
 				{
 					ADC_status_map <<= 1;
 				}
