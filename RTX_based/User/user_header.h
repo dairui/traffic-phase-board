@@ -40,3 +40,7 @@
 #define RED_CONFLICT				0x05
 #define GREEN_CONFLICT			0x06
 #define YELLOW_CONFLICT			0x07
+#define ERROR_OPTOCOUPLER		0x08
+#define ERROR_INDUCTOR_1		0x09
+#define ERROR_INDUCTOR_2		0x0A
+#define ERROR_SCR				0x0B

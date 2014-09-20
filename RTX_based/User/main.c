@@ -55,6 +55,31 @@ u8 AC_power_exist = 1;
 u32 ADC_minute_sum[12] = {0};
 u16 ADC_minute_count[12] = {0};
 
+typedef struct {
+	u16 match_table[2][3];	// IO, Inductor, Optocoupler
+	u16 pre_match_id;		// previously matched row (i.e., IO value)
+	u16 if_pre_matched;		// indicate if there is one row matched already
+	u16 match_nbr;			// number of table rows need to be matched
+}t_Fault_Match;
+
+t_Fault_Match Fault_Match_Table_Optocoupler = {0x0000, 0x0000, 0x0000, 0x0FFF, 0x0FFF, 0x0000, 0x0000, 0x0000, 2};
+t_Fault_Match Fault_Match_Table_Inductor_1 = 	{0x0000, 0x0000, 0x0FFF, 0x0FFF, 0x0000, 0x0000, 0x0000, 0x0000, 2};
+t_Fault_Match Fault_Match_Table_Inductor_2 = 	{0x0000, 0x0FFF, 0x0FFF, 0x0FFF, 0x0FFF, 0x0000, 0x0000, 0x0000, 2};
+t_Fault_Match Fault_Match_Table_SCR =			{0x0000, 0x0000, 0x0FFF, 0x0FFF, 0x0000, 0x0FFF, 0x0000, 0x0000, 2};
+t_Fault_Match Fault_Match_Table_Bulb =		{0x0000, 0x0000, 0x0000, 0x0FFF, 0x0000, 0x0000, 0x0000, 0x0000, 1};
+
+u16 Fault_map_Optocoupler = 0;
+u16 Fault_map_Inductor_1 = 0;
+u16 Fault_map_Inductor_2 = 0;
+u16 Fault_map_SCR = 0;
+u16 Fault_map_Bulb = 0;
+
+u8 Fault_counter_Optocoupler[12] = {0};
+u8 Fault_counter_Inductor_1[12] = {0};
+u8 Fault_counter_Inductor_2[12] = {0};
+u8 Fault_counter_SCR[12] = {0};
+u8 Fault_counter_Bulb[12] = {0};
+
 u16 timer_count = 0;//¿ª»úÆô¶¯¼ÆÊýÆ÷
 
 /* »ÆµÆÂÌµÆ¹ÊÕÏÆÁ±ÎÂë */
@@ -388,8 +413,12 @@ __task void task_conflict_monitor(void)
 	uint16_t ADC_samples[36];
 	int16_t temp;
 	CAN_msg *msg_recovered;
-	u8 Conflict_buffer = 0;
 	u16 temp_status=0;
+	u16 match_temp_optocoupler;
+	u16 match_temp_inductor_1;
+	u16 match_temp_inductor_2;
+	u16 match_temp_SCR;
+	u16 match_temp_bulb;
 
 	
 	/* Initialize message  = { ID, {data[0] .. data[7]}, LEN, CHANNEL, FORMAT, TYPE } */
@@ -429,7 +458,6 @@ __task void task_conflict_monitor(void)
 			// samples done
 
 			// update ADC_low_threshold[]
-			
 			temp_status = Picked_lights_status_map;
 			for (i=0; i<12; i++)
 			{
@@ -475,79 +503,183 @@ __task void task_conflict_monitor(void)
 			{
 				if (test_n[i] < SWIT_INT_THRESHOLD)
 				{
-					SWITs_status_map = (SWITs_status_map << 1) | 0x0001;
-				}
-				else
-				{
 					SWITs_status_map <<= 1;
 				}
-//				test_n[i] = 0;
-			}
-			for (i=0; i<12; i++)
-			{
+				else
+				{
+					SWITs_status_map = (SWITs_status_map << 1) | 0x0001;
+				}
 				test_n[i] = 0;
 			}
-			ADC_status_map &= ~((u16)Walker_channels << 4);
-			ADC_status_map &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);
-			SWITs_status_map &= ~((u16)Walker_channels << 4);
-			SWITs_status_map &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);
+
+			// to see if any optocoupler fault
+			match_temp_optocoupler =   ~(Fault_Match_Table_Optocoupler.match_table[0][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Optocoupler.match_table[0][1] ^ ADC_status_map) & ~(Fault_Match_Table_Optocoupler.match_table[0][2] ^ SWITs_status_map);
+			match_temp_optocoupler |= ~(Fault_Match_Table_Optocoupler.match_table[1][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Optocoupler.match_table[1][1] ^ ADC_status_map) & ~(Fault_Match_Table_Optocoupler.match_table[1][2] ^ SWITs_status_map);
+			// to see if any inductor_1 fault
+			match_temp_inductor_1 =   ~(Fault_Match_Table_Inductor_1.match_table[0][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Inductor_1.match_table[0][1] ^ ADC_status_map) & ~(Fault_Match_Table_Inductor_1.match_table[0][2] ^ SWITs_status_map);
+			match_temp_inductor_1 |= ~(Fault_Match_Table_Inductor_1.match_table[1][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Inductor_1.match_table[1][1] ^ ADC_status_map) & ~(Fault_Match_Table_Inductor_1.match_table[1][2] ^ SWITs_status_map);
+			// to see if any inductor_2 fault
+			match_temp_inductor_2 =   ~(Fault_Match_Table_Inductor_2.match_table[0][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Inductor_2.match_table[0][1] ^ ADC_status_map) & ~(Fault_Match_Table_Inductor_2.match_table[0][2] ^ SWITs_status_map);
+			match_temp_inductor_2 |= ~(Fault_Match_Table_Inductor_2.match_table[1][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Inductor_2.match_table[1][1] ^ ADC_status_map) & ~(Fault_Match_Table_Inductor_2.match_table[1][2] ^ SWITs_status_map);
+			// to see if any SCR fault
+			match_temp_SCR =   ~(Fault_Match_Table_SCR.match_table[0][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_SCR.match_table[0][1] ^ ADC_status_map) & ~(Fault_Match_Table_SCR.match_table[0][2] ^ SWITs_status_map);
+			match_temp_SCR |= ~(Fault_Match_Table_SCR.match_table[1][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_SCR.match_table[1][1] ^ ADC_status_map) & ~(Fault_Match_Table_SCR.match_table[1][2] ^ SWITs_status_map);
+			// to see if any bulb fault
+			match_temp_bulb =   ~(Fault_Match_Table_Bulb.match_table[0][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Bulb.match_table[0][1] ^ ADC_status_map) & ~(Fault_Match_Table_Bulb.match_table[0][2] ^ SWITs_status_map);
+			match_temp_bulb |= ~(Fault_Match_Table_Bulb.match_table[1][0] ^ Picked_lights_status_map) & ~(Fault_Match_Table_Bulb.match_table[1][1] ^ ADC_status_map) & ~(Fault_Match_Table_Bulb.match_table[1][2] ^ SWITs_status_map);
 			
-			if(ADC_status_map != SWITs_status_map)
+			for (j=0; j<12; j++)
 			{
-				conflict_map = (ADC_status_map^SWITs_status_map);
-			}
-			else
-			{
-				// calculate the conflict map 
-				conflict_map = Picked_lights_status_map ^ ADC_status_map;
-				// consider the Vehicle_channels and Walker_channels
-				conflict_map &= ~((u16)Walker_channels << 4);
-				conflict_map &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);
-			}
-			
-			
-			// use Error_buffer to hold on initial errors until the maximum count is reached
-//			if (conflict_map)
-//			{
-//				if (Conflict_buffer < CONFLICT_BUFFER_MAX)
-//				{
-//					Conflict_buffer++;
-//				}
-//			}
-//			else if (Conflict_buffer > 0)
-//			{
-//				Conflict_buffer=0;
-//			}
-			
-			cal_conflict_map = 0;
-			for(i=0;i<12;i++)
-			{
-				if(((conflict_map>>i)&0x01) == 1)
+				// Optocoupler
+				if(((match_temp_optocoupler >> j) & 0x0001) == 1)
 				{
-					conflict_count[i]++;
+					Fault_counter_Optocoupler[j]++;
+					
+					if (Fault_counter_Optocoupler[j] == CONFLICT_BUFFER_MAX)
+					{
+						// hit a match row
+						Fault_counter_Optocoupler[j] = 0;
+						if (!((Fault_Match_Table_Optocoupler.if_pre_matched >> j) & 0x0001))
+						{
+							Fault_Match_Table_Optocoupler.if_pre_matched |= (u16)1 << j;
+							Fault_Match_Table_Optocoupler.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+						else if (((Fault_Match_Table_Optocoupler.pre_match_id >> j) & 0x0001) != ((Picked_lights_status_map >> j) & 0x0001))
+						{
+							Fault_map_Optocoupler |= ((u16)1 << j);
+							Fault_Match_Table_Optocoupler.pre_match_id &= ~((u16)1 << j);
+							Fault_Match_Table_Optocoupler.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+					}
 				}
 				else
 				{
-					conflict_count[i] = 0;
+					Fault_counter_Optocoupler[j] = 0;
+					Fault_Match_Table_Optocoupler.if_pre_matched &= ~((u16)1 << j);
+					Fault_Match_Table_Optocoupler.pre_match_id &= ~((u16)1 << j);
 				}
-				
-				if(conflict_count[i] == CONFLICT_BUFFER_MAX)
+
+				// Inductor_1
+				if(((match_temp_inductor_1>> j) & 0x0001) == 1)
 				{
-					conflict_flag = 1;
-					cal_conflict_map |= (U16)((U16)1<<i);
+					Fault_counter_Inductor_1[j]++;
+					
+					if (Fault_counter_Inductor_1[j] == CONFLICT_BUFFER_MAX)
+					{
+						// hit a match row
+						Fault_counter_Inductor_1[j] = 0;
+						if (!((Fault_Match_Table_Inductor_1.if_pre_matched >> j) & 0x0001))
+						{
+							Fault_Match_Table_Inductor_1.if_pre_matched |= (u16)1 << j;
+							Fault_Match_Table_Inductor_1.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+						else if (((Fault_Match_Table_Inductor_1.pre_match_id >> j) & 0x0001) != ((Picked_lights_status_map >> j) & 0x0001))
+						{
+							Fault_map_Inductor_1|= ((u16)1 << j);
+							Fault_Match_Table_Inductor_1.pre_match_id &= ~((u16)1 << j);
+							Fault_Match_Table_Inductor_1.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+					}
 				}
+				else
+				{
+					Fault_counter_Inductor_1[j] = 0;
+					Fault_Match_Table_Inductor_1.if_pre_matched &= ~((u16)1 << j);
+					Fault_Match_Table_Inductor_1.pre_match_id &= ~((u16)1 << j);
+				}
+
+				// Inductor_2
+				if(((match_temp_inductor_2>> j) & 0x0001) == 1)
+				{
+					Fault_counter_Inductor_2[j]++;
+					
+					if (Fault_counter_Inductor_2[j] == CONFLICT_BUFFER_MAX)
+					{
+						// hit a match row
+						Fault_counter_Inductor_2[j] = 0;
+						if (!((Fault_Match_Table_Inductor_2.if_pre_matched >> j) & 0x0001))
+						{
+							Fault_Match_Table_Inductor_2.if_pre_matched |= (u16)1 << j;
+							Fault_Match_Table_Inductor_2.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+						else if (((Fault_Match_Table_Inductor_2.pre_match_id >> j) & 0x0001) != ((Picked_lights_status_map >> j) & 0x0001))
+						{
+							Fault_map_Inductor_2|= ((u16)1 << j);
+							Fault_Match_Table_Inductor_2.pre_match_id &= ~((u16)1 << j);
+							Fault_Match_Table_Inductor_2.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+					}
+				}
+				else
+				{
+					Fault_counter_Inductor_2[j] = 0;
+					Fault_Match_Table_Inductor_2.if_pre_matched &= ~((u16)1 << j);
+					Fault_Match_Table_Inductor_2.pre_match_id &= ~((u16)1 << j);
+				}
+
+				// SCR
+				if(((match_temp_SCR>> j) & 0x0001) == 1)
+				{
+					Fault_counter_SCR[j]++;
+					
+					if (Fault_counter_SCR[j] == CONFLICT_BUFFER_MAX)
+					{
+						// hit a match row
+						Fault_counter_SCR[j] = 0;
+						if (!((Fault_Match_Table_SCR.if_pre_matched >> j) & 0x0001))
+						{
+							Fault_Match_Table_SCR.if_pre_matched |= (u16)1 << j;
+							Fault_Match_Table_SCR.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+						else if (((Fault_Match_Table_SCR.pre_match_id >> j) & 0x0001) != ((Picked_lights_status_map >> j) & 0x0001))
+						{
+							Fault_map_SCR|= ((u16)1 << j);
+							Fault_Match_Table_SCR.pre_match_id &= ~((u16)1 << j);
+							Fault_Match_Table_SCR.pre_match_id |= (Picked_lights_status_map & ((u16)1 << j));
+						}
+					}
+				}
+				else
+				{
+					Fault_counter_SCR[j] = 0;
+					Fault_Match_Table_SCR.if_pre_matched &= ~((u16)1 << j);
+					Fault_Match_Table_SCR.pre_match_id &= ~((u16)1 << j);
+				}
+
+				// Bulb
+				if(((match_temp_bulb>> j) & 0x0001) == 1)
+				{
+					Fault_counter_Bulb[j]++;
+					
+					if (Fault_counter_Bulb[j] == CONFLICT_BUFFER_MAX)
+					{
+						// hit a match row
+						Fault_counter_Bulb[j] = 0;
+						Fault_map_Bulb |= ((u16)1 << j);
+					}
+				}
+				else
+				{
+					Fault_counter_Bulb[j] = 0;
+				}
+
 			}
+
+			// consider the Vehicle_channels and Walker_channels
+			Fault_map_Optocoupler &= ~((u16)Walker_channels << 4);;
+			Fault_map_Optocoupler &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);;
+			Fault_map_Inductor_1 &= ~((u16)Walker_channels << 4);;
+			Fault_map_Inductor_1 &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);;
+			Fault_map_Inductor_2 &= ~((u16)Walker_channels << 4);;
+			Fault_map_Inductor_2 &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);;
+			Fault_map_SCR &= ~((u16)Walker_channels << 4);;
+			Fault_map_SCR &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);;
+			Fault_map_Bulb &= ~((u16)Walker_channels << 4);;
+			Fault_map_Bulb &= (((u16)Channels_enabled << 8) | ((u16)Channels_enabled << 4) | (u16)Channels_enabled);;
 			
 			// conflict happens
-			if (conflict_flag == 1)
+			if (Fault_map_Optocoupler | Fault_map_Inductor_1 | Fault_map_Inductor_2 | Fault_map_SCR | Fault_map_Bulb)
 			{		
-				conflict_flag = 0;
-				
-				for(i=0;i<12;i++)
-				{
-					conflict_count[i] = 0;
-				}
-// 				os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 				// handle conflict
 				os_evt_set(EVT_CONFLICT_ANALYSIS, tid_conflict_analysis);
 			}
@@ -649,120 +781,53 @@ __task void task_conflict_analysis(void)
 //////			}
 //////			Last_error = (Last_error & 0x4000) | conflict_map;
 //////		}
-		else if(cal_conflict_map != (Last_error&0xfff))
+		else if((Fault_map_Optocoupler | Fault_map_Inductor_1 | Fault_map_Inductor_2 | Fault_map_SCR | Fault_map_Bulb) != (Last_error & 0x0FFF))
 		{
-			// check each conflict bit
+			// check each fault bit
 			for (i=0; i<12; i++)
 			{
-				if ((cal_conflict_map >> i) & 0x0001)
+				// Bulb fault
+				if ((Fault_map_Bulb >> i) & 0x0001)
 				{
-					err_cnt[i]++;
-					
-					if((i/4) == 2)	//ºìµÆ
+					if(((Picked_lights_status_map >> i) & 0x0001) == 1)	//canÏÂ·¢ºìµÆÎªÁÁ
 					{
-						if(((Picked_lights_status_map >> i) & 0x0001) == 1)	//canÏÂ·¢ºìµÆÎªÁÁ
+						switch (i / 4)
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 0)					//ad¼ì²âµçÁ÷Îª0
-							{
-								if(((SWITs_status_map >> i) & 0x0001) == 0)			//¿É¿Ø¹è¿ªÂ·
-								{
-									err_type = ERROR_SWIT_OPEN;
-								}
-								else																						//ºìµÆ¹ÊÕÏ
-								{
-									err_type = ERROR_LIGHT;
-								}
-								Last_error |= 0x4000;													//»ÆÉÁ
-							}
+							case 0:  //green
+								err_type = ERROR_LIGHT;
+								break;
+
+							case 1:	//yellow
+								err_type = ERROR_LIGHT;
+								break;
+
+							case 2:  // red
+								err_type = ERROR_LIGHT;
+								Last_error |= 0x4000;	
+								break;
 						}
-						else																								//Ãð
-						{
-							if(((ADC_status_map >> i) & 0x0001) == 1)					//ad¼ì²âµçÁ÷Îª1
-							{
-								if(((SWITs_status_map >> i) & 0x0001) == 1)			//¿É¿Ø¹è¶ÌÂ·
-								{
-									err_type = ERROR_SWIT_CLOSE;
-								}
-							}
-							else																						//ºì³å
-							{
-								err_type = RED_CONFLICT;
-							}
-						}
-						
 					}
-					else if((i/4) == 0)	//ÂÌµÆ
+					else
 					{
-						if(((Picked_lights_status_map >> i) & 0x0001) == 1)	//canÏÂ·¢ÂÌµÆÎªÁÁ
+						switch (i / 4)
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 0)					//ad¼ì²âµçÁ÷Îª0
-							{
-								if(((SWITs_status_map >> i) & 0x0001) == 0)			//¿É¿Ø¹è¿ªÂ·
-								{
-									err_type = ERROR_SWIT_OPEN;
-								}
-								else																						//ÂÌµÆ¹ÊÕÏ
-								{
-									err_type = ERROR_LIGHT;
-								}
-							}
-						}
-						else																								//Ãð
-						{
-							if(((ADC_status_map >> i) & 0x0001) == 1)					//ad¼ì²âµçÁ÷Îª1
-							{
-								if(((SWITs_status_map >> i) & 0x0001) == 1)			//¿É¿Ø¹è¶ÌÂ·
-								{
-									err_type = ERROR_SWIT_CLOSE;
-								}
-								
-							}
-							else																						//ÂÌ³åÅÐ¶Ï
-							{
-								//ÂÌ³å
-								Last_error |= 0x4000;												//»ÆÉÁ
+							case 0:  //green
+								Last_error |= 0x4000;	
 								err_type = GREEN_CONFLICT;
-							}
-						}
-						
-					}
-					else if((i/4) == 1)	//»ÆµÆ
-					{
-						if(((Picked_lights_status_map >> i) & 0x0001) == 1)	//canÏÂ·¢»ÆµÆÎªÁÁ
-						{
-							if(((ADC_status_map >> i) & 0x0001) == 0)					//ad¼ì²âµçÁ÷Îª0
-							{
-								if(((SWITs_status_map >> i) & 0x0001) == 0)			//¿É¿Ø¹è¿ªÂ·
-								{
-									err_type = ERROR_SWIT_OPEN;
-								}
-								else																						//»ÆµÆ¹ÊÕÏ
-								{
-									err_type = ERROR_LIGHT;
-								}
-							}
-						}
-						else																								//Ãð
-						{
-							if(((ADC_status_map >> i) & 0x0001) == 1)					//ad¼ì²âµçÁ÷Îª1
-							{
-								if(((SWITs_status_map >> i) & 0x0001) == 1)			//¿É¿Ø¹è¶ÌÂ·
-								{
-									err_type = ERROR_SWIT_CLOSE;
-								}
-							}
-							else																						//»Æ³åÅÐ¶Ï
-							{
+								break;
+
+							case 1:	//yellow
 								err_type = YELLOW_CONFLICT;
-							}
+								break;
+
+							case 2:  // red
+								err_type = RED_CONFLICT;
+								break;
 						}
-						
 					}
 					
-					if((err_type!=0)&&(err_cnt[i] >= 2))
-					{
-						err_cnt[i] = 0;
-						
+					if(err_type != 0)
+					{						
 						Work_normal = 0;
 						msg_error = _calloc_box (mpool);
 						//						Line_num	 ID_Num	  bad_light_num	  error_type
@@ -780,15 +845,128 @@ __task void task_conflict_analysis(void)
 						
 						// specify bad_light_num and error_type
 						msg_error->data[5] = ((3-i/4)+3*(i%4));
-					
 						msg_error->data[6] = err_type;
 						err_type =0;
 						
-						Last_error = (Last_error & 0x4000) | conflict_map;
 						os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
 					}				
 				}
+
+				// Optocoupler fault
+				if ((Fault_map_Optocoupler >> i) & 0x0001)
+				{
+					err_type = ERROR_OPTOCOUPLER;
+					
+					Work_normal = 0;
+					msg_error = _calloc_box (mpool);
+					//						Line_num	 ID_Num	  bad_light_num	  error_type
+					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+					msg_error->id = ID_Num;
+					msg_error->data[0] = IPI;
+					msg_error->data[1] = 0xD2;
+					msg_error->data[3] = 0x01;
+					msg_error->data[4] = ID_Num;
+					msg_error->data[7] = MSG_END;
+					msg_error->len = sizeof(msg_error->data);
+					msg_error->ch = 2;
+					msg_error->format = STANDARD_FORMAT;
+					msg_error->type = DATA_FRAME;
+
+					// specify bad_light_num and error_type
+					msg_error->data[5] = ((3-i/4)+3*(i%4));
+					msg_error->data[6] = err_type;
+					err_type =0;
+
+					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+				}				
+
+				// Inductor_1 fault
+				if ((Fault_map_Inductor_1 >> i) & 0x0001)
+				{
+					err_type = ERROR_INDUCTOR_1;
+					
+					Work_normal = 0;
+					msg_error = _calloc_box (mpool);
+					//						Line_num	 ID_Num	  bad_light_num	  error_type
+					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+					msg_error->id = ID_Num;
+					msg_error->data[0] = IPI;
+					msg_error->data[1] = 0xD2;
+					msg_error->data[3] = 0x01;
+					msg_error->data[4] = ID_Num;
+					msg_error->data[7] = MSG_END;
+					msg_error->len = sizeof(msg_error->data);
+					msg_error->ch = 2;
+					msg_error->format = STANDARD_FORMAT;
+					msg_error->type = DATA_FRAME;
+
+					// specify bad_light_num and error_type
+					msg_error->data[5] = ((3-i/4)+3*(i%4));
+					msg_error->data[6] = err_type;
+					err_type =0;
+
+					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+				}				
+
+				// Inductor_2 fault
+				if ((Fault_map_Inductor_2 >> i) & 0x0001)
+				{
+					err_type = ERROR_INDUCTOR_2;
+					
+					Work_normal = 0;
+					msg_error = _calloc_box (mpool);
+					//						Line_num	 ID_Num	  bad_light_num	  error_type
+					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+					msg_error->id = ID_Num;
+					msg_error->data[0] = IPI;
+					msg_error->data[1] = 0xD2;
+					msg_error->data[3] = 0x01;
+					msg_error->data[4] = ID_Num;
+					msg_error->data[7] = MSG_END;
+					msg_error->len = sizeof(msg_error->data);
+					msg_error->ch = 2;
+					msg_error->format = STANDARD_FORMAT;
+					msg_error->type = DATA_FRAME;
+
+					// specify bad_light_num and error_type
+					msg_error->data[5] = ((3-i/4)+3*(i%4));
+					msg_error->data[6] = err_type;
+					err_type =0;
+
+					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+				}				
+
+				// SCR fault
+				if ((Fault_map_SCR >> i) & 0x0001)
+				{
+					err_type = ERROR_SCR;
+					
+					Work_normal = 0;
+					msg_error = _calloc_box (mpool);
+					//						Line_num	 ID_Num	  bad_light_num	  error_type
+					//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
+					msg_error->id = ID_Num;
+					msg_error->data[0] = IPI;
+					msg_error->data[1] = 0xD2;
+					msg_error->data[3] = 0x01;
+					msg_error->data[4] = ID_Num;
+					msg_error->data[7] = MSG_END;
+					msg_error->len = sizeof(msg_error->data);
+					msg_error->ch = 2;
+					msg_error->format = STANDARD_FORMAT;
+					msg_error->type = DATA_FRAME;
+
+					// specify bad_light_num and error_type
+					msg_error->data[5] = ((3-i/4)+3*(i%4));
+					msg_error->data[6] = err_type;
+					err_type =0;
+
+					os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+				}				
+
 			}
+
+			Last_error = (Last_error & 0x4000) | Fault_map_Optocoupler | Fault_map_Inductor_1 | Fault_map_Inductor_2 | Fault_map_SCR | Fault_map_Bulb;
 		}
 		os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 
@@ -808,7 +986,6 @@ __task void task_heart_beat(void)
 	{
 		// wait for event to send a heart beat
 		result = os_evt_wait_and (EVT_SEND_HEART_BEAT, 0xffff);
-////		os_dly_wait (25);
 		if (result == OS_R_TMO) 
 		{
 			//printf("Event wait timeout.\n");
