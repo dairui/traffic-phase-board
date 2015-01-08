@@ -446,7 +446,7 @@ __task void task_conflict_monitor(void)
 			{
 				temp = (ADC_samples[i] + ADC_samples[12 + i] + ADC_samples[24 + i]) / 3;
 				
-				if (abs(temp - ADC_low_threshold[i]) < abs(ADC_threshold[i] - temp))
+				if (3*abs(temp - ADC_low_threshold[i]) < 2*abs(ADC_threshold[i] - temp))
 				{
 					ADC_status_map <<= 1;
 				}

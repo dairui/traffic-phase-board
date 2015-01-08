@@ -264,12 +264,12 @@ void CAN_Configuration(void)
     CAN_FilterInitStructure.CAN_FilterMode   = CAN_FilterMode_IdMask;
     CAN_FilterInitStructure.CAN_FilterScale  = CAN_FilterScale_16bit;
     CAN_FilterInitStructure.CAN_FilterFIFOAssignment = CAN_FilterFIFO0;
-    CAN_FilterInitStructure.CAN_FilterIdHigh = 0x0000;
-    CAN_FilterInitStructure.CAN_FilterMaskIdHigh = 0xFFFF;
-    CAN_FilterInitStructure.CAN_FilterMaskIdLow = 0x07FF << 5;
-    CAN_FilterInitStructure.CAN_FilterIdLow = 0x00 << 5;
+    CAN_FilterInitStructure.CAN_FilterIdHigh = 0x0001 << 5;
+	CAN_FilterInitStructure.CAN_FilterIdLow = 0x0000 ;
+    CAN_FilterInitStructure.CAN_FilterMaskIdHigh = 0xFFFE << 5;
+    CAN_FilterInitStructure.CAN_FilterMaskIdLow = 0xFFFF;
     CAN_FilterInitStructure.CAN_FilterActivation = ENABLE; 
-    //CAN_FilterInit(&CAN_FilterInitStructure);     //过滤器初始化 
+    CAN_FilterInit(&CAN_FilterInitStructure);     //过滤器初始化 
     //CAN中断设置
     
     CAN_ITConfig(CAN1, CAN_IT_FMP0, ENABLE);  
