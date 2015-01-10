@@ -20,6 +20,7 @@ OS_TID tid_conflict_analysis;
 OS_TID tid_heart_beat;
 OS_TID tid_current_report;
 OS_TID tid_AC_detector;
+OS_TID tid_watchdog;
 
 OS_MUT mutex_ADC_minute;
 
@@ -37,6 +38,7 @@ __task void task_conflict_analysis(void);
 __task void task_heart_beat(void);
 __task void task_current_report(void);
 __task void task_AC_detector(void);
+__task void task_watchdog(void);
 
 int test_n[16] = {0};
 u8 Lights_status_1[3] = {0};
@@ -54,6 +56,17 @@ u16 Last_error = 0;
 u8 AC_power_exist = 1;
 u32 ADC_minute_sum[12] = {0};
 u16 ADC_minute_count[12] = {0};
+
+u8 Loops_CAN_send = 0;
+u8 Loops_CAN_recv = 0;
+u8 Loops_Lamp_ctl = 0;
+u8 Loops_Green_led_flash = 0;
+u8 Loops_Red_led_flash = 0;
+u8 Loops_Conflict_monitor = 0;
+u8 Loops_Conflict_analysis = 0;
+u8 Loops_Heart_beat = 0;
+u8 Loops_Current_report = 0;
+u8 Loops_AC_detector = 0;
 
 u16 timer_count = 0;//开机启动计数器
 
@@ -110,7 +123,7 @@ __task void init (void)
 	tid_AC_detector = os_tsk_create(task_AC_detector, 5);
 	tid_send_CAN = os_tsk_create(task_send_CAN, 10);
 	tid_recv_CAN = os_tsk_create(task_recv_CAN, 2);
-	
+	tid_watchdog = os_tsk_create(task_watchdog, 2);
 //	GPIO_SetBits(GPIOC,GPIO_Pin_7);
 	
 	os_tsk_delete_self();
@@ -119,6 +132,7 @@ __task void init (void)
 __task void task_send_CAN(void) 
 {
 	void *msg;
+	OS_RESULT result;
 
 	CAN_init(1, 500000);               /* CAN controller 1 init, 1000 kbit/s   */
 	CAN_rx_object (1, 2,  33, DATA_TYPE | STANDARD_TYPE); /* Enable reception */
@@ -130,10 +144,16 @@ __task void task_send_CAN(void)
 
 	while (1)
 	{
-		os_mbx_wait (CAN_send_mailbox, &msg, 0xffff);
-		
-		CAN_send (1, msg, 0x0F00);  /* Send msg_send on controller 1       */
-		_free_box (mpool, msg);
+		result = os_mbx_wait (CAN_send_mailbox, &msg, 0x000A);
+
+		if (result != OS_R_TMO)
+		{
+			CAN_send (1, msg, 0x0F00);  /* Send msg_send on controller 1       */
+			_free_box (mpool, msg);
+		}
+
+		Loops_CAN_send++;
+		os_evt_set(EVT_FEED_DOG_CAN_SEND, tid_watchdog);
 	}
 }
 __task void task_recv_CAN(void)
@@ -141,9 +161,9 @@ __task void task_recv_CAN(void)
 	CAN_msg RxMessage;
 	u8 i;
 
-	for (;;)
+	while (1)
 	{
-		if (CAN_receive (1, &RxMessage, 0x00FF) == CAN_OK)
+		if (CAN_receive (1, &RxMessage, 0x000A) == CAN_OK)
 		{
 			if(RxMessage.data[0] == IPI && RxMessage.data[1] == 0xB1 && RxMessage.data[2] == 0x00)
 			{
@@ -178,6 +198,9 @@ __task void task_recv_CAN(void)
 				os_evt_set (EVT_DATA_3_RCVD, tid_lamp_ctl);
 			}
 		}
+
+		Loops_CAN_recv++;
+		os_evt_set(EVT_FEED_DOG_CAN_RECV, tid_watchdog);
 	}
 }
 
@@ -274,7 +297,7 @@ __task void task_lamp_ctl(void)
 	while (1)
 	{
 		// wait for events to update lamps
-		result = os_evt_wait_and (EVT_DATA_1_RCVD | EVT_DATA_2_RCVD | EVT_DATA_3_RCVD, 0xffff);
+		result = os_evt_wait_and (EVT_DATA_1_RCVD | EVT_DATA_2_RCVD | EVT_DATA_3_RCVD, 0x000A);
 		if (result == OS_R_TMO) 
 		{
 			//printf("Event wait timeout.\n");
@@ -320,54 +343,76 @@ __task void task_lamp_ctl(void)
 				os_evt_set(EVT_CONFLICT_MONITOR, tid_conflict_monitor);
 			}
 		}
+
+		Loops_Lamp_ctl++;
+		os_evt_set(EVT_FEED_DOG_LAMP_CTL, tid_watchdog);
 	}
 }
 
 __task void task_green_led_flash(void)
 {
 	BitAction state = Bit_SET;
+	u8 cnt = 0;
 	
-	os_itv_set (150);
+	os_itv_set (10);
 	
 	while (1)
 	{
 		os_itv_wait ();
 		
-		
+		cnt++;
+
 		if (Work_normal)
 		{
-			state = (BitAction)(1 - state);
-			GPIO_WriteBit(GPIOD, GPIO_Pin_1, state);
+			if (cnt == 15)
+			{
+				cnt = 0;
+				state = (BitAction)(1 - state);
+				GPIO_WriteBit(GPIOD, GPIO_Pin_1, state);
+			}
 		}
 		else
 		{
 			GPIO_WriteBit(GPIOD, GPIO_Pin_1, Bit_SET);
 		}
+
+		Loops_Green_led_flash++;
+		os_evt_set(EVT_FEED_DOG_GREEN_LED_FLASH, tid_watchdog);
 	}
 }
 
 __task void task_red_led_flash(void)
 {
 	BitAction state = Bit_SET;
+	u8 cnt = 0;
 	
-	os_itv_set (20);
+	os_itv_set (10);
 	
 	while (1)
 	{
 		os_itv_wait ();
-		
-		GPIO_PinReverse(GPIOD, GPIO_Pin_4);//hard_watchdog
-		if(timer_count<50) timer_count++;//开机计时10s
+
+		cnt++;
+
+		//GPIO_PinReverse(GPIOD, GPIO_Pin_4);//hard_watchdog
+		if(timer_count<100) timer_count++;//开机计时10s
 		
 		if (!Work_normal)
 		{
-			state = (BitAction)(1 - state);
-			GPIO_WriteBit(GPIOD, GPIO_Pin_2, state);
+			if (cnt == 2)
+			{
+				cnt = 0;
+				state = (BitAction)(1 - state);
+				GPIO_WriteBit(GPIOD, GPIO_Pin_2, state);
+			}
 		}
 		else
 		{
 			GPIO_WriteBit(GPIOD, GPIO_Pin_2, Bit_SET);
 		}
+
+		Loops_Red_led_flash++;
+		os_evt_set(EVT_FEED_DOG_RED_LED_FLASH, tid_watchdog);
 	}
 }
 
@@ -398,7 +443,7 @@ __task void task_conflict_monitor(void)
 	while (1)
 	{
 		// wait for event to start a cycle of conflict detection
-		result = os_evt_wait_and (EVT_CONFLICT_MONITOR, 0xffff);
+		result = os_evt_wait_and (EVT_CONFLICT_MONITOR, 0x000A);
 		if (result == OS_R_TMO) 
 		{
 			//printf("Event wait timeout.\n");
@@ -576,6 +621,9 @@ __task void task_conflict_monitor(void)
 
 			}
 		}
+
+		Loops_Conflict_monitor++;
+		os_evt_set(EVT_FEED_DOG_CONFLICT_MONITOR, tid_watchdog);
 	}
 }
 
@@ -597,7 +645,7 @@ __task void task_conflict_analysis(void)
 	while (1)
 	{
 		// wait for event to start a conflict analysis
-		result = os_evt_wait_and (EVT_CONFLICT_ANALYSIS, 0xffff);
+		result = os_evt_wait_and (EVT_CONFLICT_ANALYSIS, 0x000A);
 		if (result == OS_R_TMO) 
 		{
 			//printf("Event wait timeout.\n");
@@ -791,7 +839,8 @@ __task void task_conflict_analysis(void)
 			}
 		}
 		os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
-
+		Loops_Conflict_analysis++;
+		os_evt_set(EVT_FEED_DOG_CONFLICT_ANALYSIS, tid_watchdog);
 	}
 }
 
@@ -807,7 +856,7 @@ __task void task_heart_beat(void)
 	while (1)
 	{
 		// wait for event to send a heart beat
-		result = os_evt_wait_and (EVT_SEND_HEART_BEAT, 0xffff);
+		result = os_evt_wait_and (EVT_SEND_HEART_BEAT, 0x000A);
 ////		os_dly_wait (25);
 		if (result == OS_R_TMO) 
 		{
@@ -836,6 +885,9 @@ __task void task_heart_beat(void)
 			os_dly_wait(ID_Num);
 			os_mbx_send (CAN_send_mailbox, msg_heart_beat, 0xffff);
 		}
+
+		Loops_Heart_beat++;
+		os_evt_set(EVT_FEED_DOG_HEART_BEAT, tid_watchdog);
 	}
 }
 
@@ -849,96 +901,106 @@ __task void task_current_report(void)
 	
 	int i;
 	u16 ADC_minute_average[12] = {0};
+	u16 cnt = 0;
 	
-	os_itv_set (6000); // report once per minute
+	os_itv_set (10); // report once per minute
 	
 	while (1)
 	{
 		os_itv_wait();
-		
-		for (i=0; i<12; i++)
+
+		cnt++;
+
+		if (cnt == 600)
 		{
-			if (ADC_minute_count[i])
+			cnt = 0;
+			for (i=0; i<12; i++)
 			{
-				os_mut_wait (mutex_ADC_minute, 0xffff);
-				// critical region start
-					ADC_minute_average[i] = ADC_minute_sum[i]/ADC_minute_count[i];
-					ADC_minute_sum[i] = 0;
-					ADC_minute_count[i] = 0;
-				// critical region end
-				os_mut_release (mutex_ADC_minute);
+				if (ADC_minute_count[i])
+				{
+					os_mut_wait (mutex_ADC_minute, 0xffff);
+					// critical region start
+						ADC_minute_average[i] = ADC_minute_sum[i]/ADC_minute_count[i];
+						ADC_minute_sum[i] = 0;
+						ADC_minute_count[i] = 0;
+					// critical region end
+					os_mut_release (mutex_ADC_minute);
+				}
 			}
+
+			msg_current_report_1 = _calloc_box (mpool);
+			msg_current_report_2 = _calloc_box (mpool);
+			msg_current_report_3 = _calloc_box (mpool);
+			msg_current_report_4 = _calloc_box (mpool);
+			msg_current_report_5 = _calloc_box (mpool);
+
+			//msg_current_report_x { id,{	data[0], 	   data[1] data[2] data[3] data[4] data[5] data[6] 	   data[7]		}, len, ch, format, 		  type};
+			//msg_current_report_1 { 1, {	IPI 			0xCC 	0x00 	0x01 	P1Rl 	P1Rh 	P1Yl 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
+			//msg_current_report_2 { 1, {	MSG_CONTINUE 	P1Yh 	P1Gl 	P1Gh 	0x02 	P2Rl 	P2Rh 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
+			//msg_current_report_3 { 1, {	MSG_CONTINUE 	P2Yl 	P2Yh 	P2Gl 	P2Gh 	0x03 	P3Rl 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
+			//msg_current_report_4 { 1, {	MSG_CONTINUE 	P3Rh 	P3Yl 	P3Yh 	P3Gl 	P3Gh 	P4Rl 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
+			//msg_current_report_5 { 1, {	MSG_CONTINUE 	0x04 	P4Rh 	P4Yl 	P4Yh 	P4Gl 	P4Gh 	MSG_END			}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
+			msg_current_report_1->id = msg_current_report_2->id = msg_current_report_3->id = msg_current_report_4->id = msg_current_report_5->id = 1;
+			msg_current_report_1->len = msg_current_report_2->len = msg_current_report_3->len = msg_current_report_4->len = msg_current_report_5->len = 8;
+			msg_current_report_1->ch = msg_current_report_2->ch = msg_current_report_3->ch = msg_current_report_4->ch = msg_current_report_5->ch = 2;
+			msg_current_report_1->format = msg_current_report_2->format = msg_current_report_3->format = msg_current_report_4->format = msg_current_report_5->format = STANDARD_FORMAT;
+			msg_current_report_1->type = msg_current_report_2->type = msg_current_report_3->type = msg_current_report_4->type = msg_current_report_5->type = DATA_FRAME;
+
+			msg_current_report_1->data[0] = IPI;
+			msg_current_report_2->data[0] = msg_current_report_3->data[0] = msg_current_report_4->data[0] = msg_current_report_5->data[0] = MSG_CONTINUE;
+
+			msg_current_report_1->data[7] = msg_current_report_2->data[7] = msg_current_report_3->data[7] = msg_current_report_4->data[7] = MSG_CONTINUE;
+			msg_current_report_5->data[7] = MSG_END;
+
+			msg_current_report_1->data[1] = 0xCC;
+			msg_current_report_1->data[2] = 0x00;
+			msg_current_report_1->data[3] = 0x01;
+			msg_current_report_2->data[4] = 0x02;
+			msg_current_report_3->data[5] = 0x03;
+			msg_current_report_5->data[1] = 0x04;
+
+			// ADC_minute_average[0]    1	2	3	4	5	6	7	8	9	10	11
+			//			4R				3R	2R	1R	4Y	3Y	2Y	1Y	4G	3G	2G	1G
+			msg_current_report_4->data[6] = ADC_minute_average[0] & 0x00FF; //P4Rl
+			msg_current_report_5->data[2] = ADC_minute_average[0] >> 8; 	//P4Rh
+			msg_current_report_3->data[6] = ADC_minute_average[1] & 0x00FF; //P3Rl
+			msg_current_report_4->data[1] = ADC_minute_average[1] >> 8; 	//P3Rh
+			msg_current_report_2->data[5] = ADC_minute_average[2] & 0x00FF; //P2Rl
+			msg_current_report_2->data[6] = ADC_minute_average[2] >> 8; 	//P2Rh
+			msg_current_report_1->data[4] = ADC_minute_average[3] & 0x00FF; //P1Rl
+			msg_current_report_1->data[5] = ADC_minute_average[3] >> 8; 	//P1Rh
+			msg_current_report_5->data[3] = ADC_minute_average[4] & 0x00FF; //P4Yl
+			msg_current_report_5->data[4] = ADC_minute_average[4] >> 8; 	//P4Yh
+			msg_current_report_4->data[2] = ADC_minute_average[5] & 0x00FF; //P3Yl
+			msg_current_report_4->data[3] = ADC_minute_average[5] >> 8; 	//P3Yh
+			msg_current_report_3->data[1] = ADC_minute_average[6] & 0x00FF; //P2Yl
+			msg_current_report_3->data[2] = ADC_minute_average[6] >> 8; 	//P2Yh
+			msg_current_report_1->data[6] = ADC_minute_average[7] & 0x00FF; //P1Yl
+			msg_current_report_2->data[1] = ADC_minute_average[7] >> 8; 	//P1Yh
+			msg_current_report_5->data[5] = ADC_minute_average[8] & 0x00FF; //P4Gl
+			msg_current_report_5->data[6] = ADC_minute_average[8] >> 8; 	//P4Gh
+			msg_current_report_4->data[4] = ADC_minute_average[9] & 0x00FF; //P3Gl
+			msg_current_report_4->data[5] = ADC_minute_average[9] >> 8; 	//P3Gh
+			msg_current_report_3->data[3] = ADC_minute_average[10] & 0x00FF;//P2Gl
+			msg_current_report_3->data[4] = ADC_minute_average[10] >> 8; 	//P2Gh
+			msg_current_report_2->data[2] = ADC_minute_average[11] & 0x00FF;//P1Gl
+			msg_current_report_2->data[3] = ADC_minute_average[11] >> 8; 	//P1Gh
+
+			os_mbx_send (CAN_send_mailbox, msg_current_report_1, 0xffff);
+			os_mbx_send (CAN_send_mailbox, msg_current_report_2, 0xffff);
+			os_mbx_send (CAN_send_mailbox, msg_current_report_3, 0xffff);
+			os_mbx_send (CAN_send_mailbox, msg_current_report_4, 0xffff);
+			os_mbx_send (CAN_send_mailbox, msg_current_report_5, 0xffff);
 		}
-		
-		msg_current_report_1 = _calloc_box (mpool);
-		msg_current_report_2 = _calloc_box (mpool);
-		msg_current_report_3 = _calloc_box (mpool);
-		msg_current_report_4 = _calloc_box (mpool);
-		msg_current_report_5 = _calloc_box (mpool);
-		
-		//msg_current_report_x { id,{	data[0], 	   data[1] data[2] data[3] data[4] data[5] data[6] 	   data[7]		}, len, ch, format, 		  type};
-		//msg_current_report_1 { 1, {	IPI 			0xCC 	0x00 	0x01 	P1Rl 	P1Rh 	P1Yl 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
-		//msg_current_report_2 { 1, {	MSG_CONTINUE 	P1Yh 	P1Gl 	P1Gh 	0x02 	P2Rl 	P2Rh 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
-		//msg_current_report_3 { 1, {	MSG_CONTINUE 	P2Yl 	P2Yh 	P2Gl 	P2Gh 	0x03 	P3Rl 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
-		//msg_current_report_4 { 1, {	MSG_CONTINUE 	P3Rh 	P3Yl 	P3Yh 	P3Gl 	P3Gh 	P4Rl 	MSG_CONTINUE	}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
-		//msg_current_report_5 { 1, {	MSG_CONTINUE 	0x04 	P4Rh 	P4Yl 	P4Yh 	P4Gl 	P4Gh 	MSG_END			}, 8, 	2, STANDARD_FORMAT, DATA_FRAME};
-		msg_current_report_1->id = msg_current_report_2->id = msg_current_report_3->id = msg_current_report_4->id = msg_current_report_5->id = 1;
-		msg_current_report_1->len = msg_current_report_2->len = msg_current_report_3->len = msg_current_report_4->len = msg_current_report_5->len = 8;
-		msg_current_report_1->ch = msg_current_report_2->ch = msg_current_report_3->ch = msg_current_report_4->ch = msg_current_report_5->ch = 2;
-		msg_current_report_1->format = msg_current_report_2->format = msg_current_report_3->format = msg_current_report_4->format = msg_current_report_5->format = STANDARD_FORMAT;
-		msg_current_report_1->type = msg_current_report_2->type = msg_current_report_3->type = msg_current_report_4->type = msg_current_report_5->type = DATA_FRAME;
-		
-		msg_current_report_1->data[0] = IPI;
-		msg_current_report_2->data[0] = msg_current_report_3->data[0] = msg_current_report_4->data[0] = msg_current_report_5->data[0] = MSG_CONTINUE;
-		
-		msg_current_report_1->data[7] = msg_current_report_2->data[7] = msg_current_report_3->data[7] = msg_current_report_4->data[7] = MSG_CONTINUE;
-		msg_current_report_5->data[7] = MSG_END;
-		
-		msg_current_report_1->data[1] = 0xCC;
-		msg_current_report_1->data[2] = 0x00;
-		msg_current_report_1->data[3] = 0x01;
-		msg_current_report_2->data[4] = 0x02;
-		msg_current_report_3->data[5] = 0x03;
-		msg_current_report_5->data[1] = 0x04;
-		
-		// ADC_minute_average[0]    1	2	3	4	5	6	7	8	9	10	11
-		//			4R				3R	2R	1R	4Y	3Y	2Y	1Y	4G	3G	2G	1G
-		msg_current_report_4->data[6] = ADC_minute_average[0] & 0x00FF; //P4Rl
-		msg_current_report_5->data[2] = ADC_minute_average[0] >> 8; 	//P4Rh
-		msg_current_report_3->data[6] = ADC_minute_average[1] & 0x00FF; //P3Rl
-		msg_current_report_4->data[1] = ADC_minute_average[1] >> 8; 	//P3Rh
-		msg_current_report_2->data[5] = ADC_minute_average[2] & 0x00FF; //P2Rl
-		msg_current_report_2->data[6] = ADC_minute_average[2] >> 8; 	//P2Rh
-		msg_current_report_1->data[4] = ADC_minute_average[3] & 0x00FF; //P1Rl
-		msg_current_report_1->data[5] = ADC_minute_average[3] >> 8; 	//P1Rh
-		msg_current_report_5->data[3] = ADC_minute_average[4] & 0x00FF; //P4Yl
-		msg_current_report_5->data[4] = ADC_minute_average[4] >> 8; 	//P4Yh
-		msg_current_report_4->data[2] = ADC_minute_average[5] & 0x00FF; //P3Yl
-		msg_current_report_4->data[3] = ADC_minute_average[5] >> 8; 	//P3Yh
-		msg_current_report_3->data[1] = ADC_minute_average[6] & 0x00FF; //P2Yl
-		msg_current_report_3->data[2] = ADC_minute_average[6] >> 8; 	//P2Yh
-		msg_current_report_1->data[6] = ADC_minute_average[7] & 0x00FF; //P1Yl
-		msg_current_report_2->data[1] = ADC_minute_average[7] >> 8; 	//P1Yh
-		msg_current_report_5->data[5] = ADC_minute_average[8] & 0x00FF; //P4Gl
-		msg_current_report_5->data[6] = ADC_minute_average[8] >> 8; 	//P4Gh
-		msg_current_report_4->data[4] = ADC_minute_average[9] & 0x00FF; //P3Gl
-		msg_current_report_4->data[5] = ADC_minute_average[9] >> 8; 	//P3Gh
-		msg_current_report_3->data[3] = ADC_minute_average[10] & 0x00FF;//P2Gl
-		msg_current_report_3->data[4] = ADC_minute_average[10] >> 8; 	//P2Gh
-		msg_current_report_2->data[2] = ADC_minute_average[11] & 0x00FF;//P1Gl
-		msg_current_report_2->data[3] = ADC_minute_average[11] >> 8; 	//P1Gh
-		
-		os_mbx_send (CAN_send_mailbox, msg_current_report_1, 0xffff);
-		os_mbx_send (CAN_send_mailbox, msg_current_report_2, 0xffff);
-		os_mbx_send (CAN_send_mailbox, msg_current_report_3, 0xffff);
-		os_mbx_send (CAN_send_mailbox, msg_current_report_4, 0xffff);
-		os_mbx_send (CAN_send_mailbox, msg_current_report_5, 0xffff);
+
+		Loops_Current_report++;
+		os_evt_set(EVT_FEED_DOG_CURRENT_REPORT, tid_watchdog);
 	}
 }
 
 __task void task_AC_detector(void)
 {
-	os_itv_set (25); // to detect every 250ms
+	os_itv_set (10); // to detect every 100ms
 
 	while (1)
 	{
@@ -960,6 +1022,249 @@ __task void task_AC_detector(void)
 		}
 
 		test_n[15] = 0;
+
+		Loops_AC_detector++;
+		os_evt_set(EVT_FEED_DOG_AC_DETECTOR, tid_watchdog);
+	}
+}
+
+void feed_dog(void)
+{
+	GPIO_WriteBit(GPIOD, GPIO_Pin_4, Bit_RESET);
+	GPIO_PinReverse(GPIOD, GPIO_Pin_4);
+	os_dly_wait(1);
+	GPIO_PinReverse(GPIOD, GPIO_Pin_4);
+}
+
+__task void task_watchdog(void)
+{
+	OS_RESULT result;
+	u8 errcnt_CAN_send = 0;
+	u8 errcnt_CAN_recv = 0;
+	u8 errcnt_Lamp_ctl = 0;
+	u8 errcnt_Green_led_flash = 0;
+	u8 errcnt_Red_led_flash = 0;
+	u8 errcnt_Conflict_monitor = 0;
+	u8 errcnt_Conflict_analysis = 0;
+	u8 errcnt_Heart_beat = 0;
+	u8 errcnt_Current_report = 0;
+	u8 errcnt_AC_detector = 0;
+
+	while (1)
+	{
+		// wait for event to feed the dog
+		result = os_evt_wait_and (	EVT_FEED_DOG_CAN_SEND |
+									EVT_FEED_DOG_CAN_RECV |
+									EVT_FEED_DOG_LAMP_CTL |
+									EVT_FEED_DOG_GREEN_LED_FLASH |
+									EVT_FEED_DOG_RED_LED_FLASH |
+									EVT_FEED_DOG_CONFLICT_MONITOR |
+									EVT_FEED_DOG_CONFLICT_ANALYSIS |
+									EVT_FEED_DOG_HEART_BEAT |
+									//EVT_FEED_DOG_CURRENT_REPORT |
+									EVT_FEED_DOG_AC_DETECTOR, 50);
+
+		if (result == OS_R_TMO)
+		{
+			//at lease one task has something wrong, check it out
+			if (Loops_CAN_send == 0)
+			{
+				errcnt_CAN_send++;
+				if (errcnt_CAN_send >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_CAN_send >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_send_CAN);
+					tid_send_CAN = os_tsk_create(task_send_CAN, 10);
+					feed_dog();
+				}
+			}
+
+			if (Loops_CAN_recv == 0)
+			{
+				errcnt_CAN_recv++;
+				if (errcnt_CAN_recv >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_CAN_recv >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_recv_CAN);
+					tid_recv_CAN = os_tsk_create(task_recv_CAN, 2);
+					feed_dog();
+				}
+			}
+
+			if (Loops_Lamp_ctl == 0)
+			{
+				errcnt_Lamp_ctl++;
+				if (errcnt_Lamp_ctl >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_Lamp_ctl >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_lamp_ctl);
+					tid_lamp_ctl = os_tsk_create(task_lamp_ctl, 2);
+					feed_dog();
+				}
+			}
+
+			if (Loops_Green_led_flash == 0)
+			{
+				errcnt_Green_led_flash++;
+				if (errcnt_Green_led_flash >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_Green_led_flash >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_green_led_flash);
+					tid_green_led_flash = os_tsk_create(task_green_led_flash, 2);
+					feed_dog();
+				}
+			}
+
+			if (Loops_Red_led_flash == 0)
+			{
+				errcnt_Red_led_flash++;
+				if (errcnt_Red_led_flash >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_Red_led_flash >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_red_led_flash);
+					tid_red_led_flash = os_tsk_create(task_red_led_flash, 2);
+					feed_dog();
+				}
+			}
+
+			if (Loops_Conflict_monitor == 0)
+			{
+				errcnt_Conflict_monitor++;
+				if (errcnt_Conflict_monitor >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_Conflict_monitor >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_conflict_monitor);
+					tid_conflict_monitor = os_tsk_create(task_conflict_monitor, 2);
+					feed_dog();
+				}
+			}
+
+			if (Loops_Conflict_analysis == 0)
+			{
+				errcnt_Conflict_analysis++;
+				if (errcnt_Conflict_analysis >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_Conflict_analysis >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_conflict_analysis);
+					tid_conflict_analysis = os_tsk_create(task_conflict_analysis, 2);
+					feed_dog();
+				}
+			}
+
+			if (Loops_Heart_beat == 0)
+			{
+				errcnt_Heart_beat++;
+				if (errcnt_Heart_beat >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_Heart_beat >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_heart_beat);
+					tid_heart_beat = os_tsk_create(task_heart_beat, 2);
+					feed_dog();
+				}
+			}
+/*
+			if (Loops_Current_report == 0)
+			{
+				errcnt_Current_report++;
+				if (errcnt_Current_report >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_Current_report >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_current_report);
+					tid_current_report = os_tsk_create(task_current_report, 2);
+					feed_dog();
+				}
+			}
+*/
+			if (Loops_AC_detector == 0)
+			{
+				errcnt_AC_detector++;
+				if (errcnt_AC_detector >= 20)
+				{
+					// task can not be recovered. Reboot the board
+					tsk_lock();
+				}
+				else if (errcnt_AC_detector >= 5)
+				{
+					// task abnormal, restart it
+					os_tsk_delete(tid_AC_detector);
+					tid_AC_detector = os_tsk_create(task_AC_detector, 5);
+					feed_dog();
+				}
+			}
+
+		}
+		else
+		{
+			// all tasks seem good. feed the dog
+			feed_dog();
+
+			Loops_CAN_send = 0;
+			Loops_CAN_recv = 0;
+			Loops_Lamp_ctl = 0;
+			Loops_Green_led_flash = 0;
+			Loops_Red_led_flash = 0;
+			Loops_Conflict_monitor = 0;
+			Loops_Conflict_analysis = 0;
+			Loops_Heart_beat = 0;
+			Loops_Current_report = 0;
+			Loops_AC_detector = 0;
+
+			errcnt_CAN_send = 0;
+			errcnt_CAN_recv = 0;
+			errcnt_Lamp_ctl = 0;
+			errcnt_Green_led_flash = 0;
+			errcnt_Red_led_flash = 0;
+			errcnt_Conflict_monitor = 0;
+			errcnt_Conflict_analysis = 0;
+			errcnt_Heart_beat = 0;
+			errcnt_Current_report = 0;
+			errcnt_AC_detector = 0;
+		}
 
 	}
 }
