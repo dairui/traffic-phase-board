@@ -160,6 +160,7 @@ __task void task_recv_CAN(void)
 {	
 	CAN_msg RxMessage;
 	u8 i;
+	u8 f_detect = 1;
 
 	while (1)
 	{
@@ -174,8 +175,11 @@ __task void task_recv_CAN(void)
 						{
 							Lights_status_1[i] = RxMessage.data[i + 4];
 						}
-						os_evt_clr (EVT_DATA_2_RCVD, tid_lamp_ctl);
-						os_evt_set (EVT_DATA_1_RCVD, tid_lamp_ctl);
+						if (f_detect)
+						{
+							os_evt_clr (EVT_DATA_2_RCVD, tid_lamp_ctl);
+							os_evt_set (EVT_DATA_1_RCVD, tid_lamp_ctl);
+						}
 						break;
 						
 					case 0x02:
@@ -183,8 +187,11 @@ __task void task_recv_CAN(void)
 						{
 							Lights_status_2[i] = RxMessage.data[i + 4];
 						}
-						os_evt_clr (EVT_DATA_3_RCVD, tid_lamp_ctl);
-						os_evt_set (EVT_DATA_2_RCVD, tid_lamp_ctl);
+						if (f_detect)
+						{
+							os_evt_clr (EVT_DATA_3_RCVD, tid_lamp_ctl);
+							os_evt_set (EVT_DATA_2_RCVD, tid_lamp_ctl);
+						}
 						break;
 				}
 			}
@@ -195,7 +202,26 @@ __task void task_recv_CAN(void)
 				// The bitmap of available walker channels
 				Walker_channels = ((((RxMessage.data[6]<<8)|RxMessage.data[5])>>(ID_Num-1)*4)&0x0f);
 
-				os_evt_set (EVT_DATA_3_RCVD, tid_lamp_ctl);
+				if (f_detect)
+				{
+					os_evt_set (EVT_DATA_3_RCVD, tid_lamp_ctl);
+				}
+			}
+			else if(RxMessage.data[0] == IPI && RxMessage.data[1] == 0xA6 && RxMessage.data[3] == ID_Num)
+			{
+				if ((RxMessage.data[6] == 5) || (RxMessage.data[6] == 6) || (RxMessage.data[6] == 7) || (RxMessage.data[6] == 8))
+				{
+					f_detect = 0;
+				}
+				else if (RxMessage.data[6] == 10)
+				{
+					f_detect = 1;
+				}
+			}
+			else if(RxMessage.data[0] == IPI && RxMessage.data[1] == 0xA7 && (RxMessage.data[3] == ID_Num || RxMessage.data[3] == 0xFF) && (RxMessage.data[5] & 0x01))
+			{
+				// aim to cause reboot
+				tsk_lock();
 			}
 		}
 
@@ -632,11 +658,15 @@ __task void task_conflict_analysis(void)
 {
 	OS_RESULT result;
 // 	u16 SWITs_status_map;
-	CAN_msg *msg_error;
+	CAN_msg *msg_error, *msg_error_red, *msg_error_green, *msg_error_yellow;
 	int i;
-	
+
 	U8 red_err_cnt = 0;
 	U8 err_type = 0;
+	U16 err_red_data2 = 0;
+	U16 err_green_data2 = 0;
+	U16 err_yellow_data2 = 0;
+
 	//										   Line_num	 ID_Num	  bad_light_num	  error_type
 	//CAN_msg msg_error = { 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
 
@@ -699,6 +729,10 @@ __task void task_conflict_analysis(void)
 //////		}
 		else if(cal_conflict_map != (Last_error&0xfff))
 		{
+			err_red_data2 = 0;
+			err_green_data2 = 0;
+			err_yellow_data2 = 0;
+
 			// check each conflict bit
 			for (i=0; i<12; i++)
 			{
@@ -719,6 +753,7 @@ __task void task_conflict_analysis(void)
 								else																						//ºìµÆ¹ÊÕÏ
 								{
 									err_type = ERROR_LIGHT;
+									err_red_data2 |= 1 << (2*(i%4));
 								}
 								Last_error |= 0x4000;													//»ÆÉÁ
 							}
@@ -735,6 +770,7 @@ __task void task_conflict_analysis(void)
 							else																						//ºì³å
 							{
 								err_type = RED_CONFLICT;
+								err_red_data2 |= 1 << (1 + 2*(i%4));
 							}
 						}
 						
@@ -752,6 +788,7 @@ __task void task_conflict_analysis(void)
 								else																						//ÂÌµÆ¹ÊÕÏ
 								{
 									err_type = ERROR_LIGHT;
+									err_green_data2 |= 1 << (2*(i%4));
 								}
 							}
 						}
@@ -770,6 +807,7 @@ __task void task_conflict_analysis(void)
 								//ÂÌ³å
 								Last_error |= 0x4000;												//»ÆÉÁ
 								err_type = GREEN_CONFLICT;
+								err_green_data2 |= 1 << (1 + 2*(i%4));
 							}
 						}
 						
@@ -787,6 +825,7 @@ __task void task_conflict_analysis(void)
 								else																						//»ÆµÆ¹ÊÕÏ
 								{
 									err_type = ERROR_LIGHT;
+									err_yellow_data2 |= 1 << (2*(i%4));
 								}
 							}
 						}
@@ -802,6 +841,7 @@ __task void task_conflict_analysis(void)
 							else																						//»Æ³åÅÐ¶Ï
 							{
 								err_type = YELLOW_CONFLICT;
+								err_yellow_data2 |= 1 << (1 + 2*(i%4));
 							}
 						}
 						
@@ -837,6 +877,66 @@ __task void task_conflict_analysis(void)
 					}				
 				}
 			}
+
+			if (err_red_data2)
+			{
+				msg_error_red = _calloc_box (mpool);
+
+				msg_error_red->id = ID_Num;
+				msg_error_red->data[0] = IPI;
+				msg_error_red->data[1] = 0xE1;
+				msg_error_red->data[3] = ID_Num;
+				err_red_data2 |= ((err_red_data2 | 0x55) != 0) << 14;
+				err_red_data2 |= (AC_power_exist == 1) << 15;
+				msg_error_red->data[4] = (U8)(err_red_data2 >> 8);
+				msg_error_red->data[5] = (U8)err_red_data2;
+				msg_error_red->data[7] = MSG_END;
+				msg_error_red->len = sizeof(msg_error_red->data);
+				msg_error_red->ch = 2;
+				msg_error_red->format = STANDARD_FORMAT;
+				msg_error_red->type = DATA_FRAME;
+				os_mbx_send (CAN_send_mailbox, msg_error_red, 0xffff);
+			}
+
+			if (err_green_data2)
+			{
+				msg_error_green = _calloc_box (mpool);
+
+				msg_error_green->id = ID_Num;
+				msg_error_green->data[0] = IPI;
+				msg_error_green->data[1] = 0xE3;
+				msg_error_green->data[3] = ID_Num;
+				err_green_data2 |= ((err_green_data2 | 0xAA) != 0) << 14;
+				err_green_data2 |= (AC_power_exist == 1) << 15;
+				msg_error_green->data[4] = (U8)(err_green_data2 >> 8);
+				msg_error_green->data[5] = (U8)err_green_data2;
+				msg_error_green->data[7] = MSG_END;
+				msg_error_green->len = sizeof(msg_error_green->data);
+				msg_error_green->ch = 2;
+				msg_error_green->format = STANDARD_FORMAT;
+				msg_error_green->type = DATA_FRAME;
+				os_mbx_send (CAN_send_mailbox, msg_error_green, 0xffff);
+			}
+
+			if (err_yellow_data2)
+			{
+				msg_error_yellow = _calloc_box (mpool);
+
+				msg_error_yellow->id = ID_Num;
+				msg_error_yellow->data[0] = IPI;
+				msg_error_yellow->data[1] = 0xE2;
+				msg_error_yellow->data[3] = ID_Num;
+				err_yellow_data2 |= (AC_power_exist == 1) << 15;
+				msg_error_yellow->data[4] = (U8)(err_yellow_data2 >> 8);
+				msg_error_yellow->data[5] = (U8)err_yellow_data2;
+				msg_error_yellow->data[7] = MSG_END;
+				msg_error_yellow->len = sizeof(msg_error_yellow->data);
+				msg_error_yellow->ch = 2;
+				msg_error_yellow->format = STANDARD_FORMAT;
+				msg_error_yellow->type = DATA_FRAME;
+				os_mbx_send (CAN_send_mailbox, msg_error_yellow, 0xffff);
+			}
+
 		}
 		os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 		Loops_Conflict_analysis++;
