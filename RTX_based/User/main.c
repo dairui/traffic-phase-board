@@ -209,7 +209,7 @@ __task void task_recv_CAN(void)
 			}
 			else if(RxMessage.data[0] == IPI && RxMessage.data[1] == 0xA6 && RxMessage.data[3] == ID_Num)
 			{
-				if ((RxMessage.data[6] == 5) || (RxMessage.data[6] == 6) || (RxMessage.data[6] == 7) || (RxMessage.data[6] == 8))
+				if ((RxMessage.data[6] == 5) || (RxMessage.data[6] == 6) || (RxMessage.data[6] == 7) || (RxMessage.data[6] == 8) || (RxMessage.data[6] == 9))
 				{
 					f_detect = 0;
 				}
@@ -887,7 +887,7 @@ __task void task_conflict_analysis(void)
 				msg_error_red->data[1] = 0xE1;
 				msg_error_red->data[3] = ID_Num;
 				err_red_data2 |= ((err_red_data2 | 0x55) != 0) << 14;
-				err_red_data2 |= (AC_power_exist == 1) << 15;
+				err_red_data2 |= (AC_power_exist == 0) << 15;
 				msg_error_red->data[4] = (U8)(err_red_data2 >> 8);
 				msg_error_red->data[5] = (U8)err_red_data2;
 				msg_error_red->data[7] = MSG_END;
@@ -907,7 +907,7 @@ __task void task_conflict_analysis(void)
 				msg_error_green->data[1] = 0xE3;
 				msg_error_green->data[3] = ID_Num;
 				err_green_data2 |= ((err_green_data2 | 0xAA) != 0) << 14;
-				err_green_data2 |= (AC_power_exist == 1) << 15;
+				err_green_data2 |= (AC_power_exist == 0) << 15;
 				msg_error_green->data[4] = (U8)(err_green_data2 >> 8);
 				msg_error_green->data[5] = (U8)err_green_data2;
 				msg_error_green->data[7] = MSG_END;
@@ -926,7 +926,7 @@ __task void task_conflict_analysis(void)
 				msg_error_yellow->data[0] = IPI;
 				msg_error_yellow->data[1] = 0xE2;
 				msg_error_yellow->data[3] = ID_Num;
-				err_yellow_data2 |= (AC_power_exist == 1) << 15;
+				err_yellow_data2 |= (AC_power_exist == 0) << 15;
 				msg_error_yellow->data[4] = (U8)(err_yellow_data2 >> 8);
 				msg_error_yellow->data[5] = (U8)err_yellow_data2;
 				msg_error_yellow->data[7] = MSG_END;
@@ -1100,6 +1100,10 @@ __task void task_current_report(void)
 
 __task void task_AC_detector(void)
 {
+	int cnt = 0;
+	U8 sent = 0, recovered = 0;
+	CAN_msg *msg_AC_loss, *msg_AC_recovered;
+
 	os_itv_set (10); // to detect every 100ms
 
 	while (1)
@@ -1115,13 +1119,58 @@ __task void task_AC_detector(void)
 		{
 			// no AC power detected
 			AC_power_exist = 0;
+			if (++cnt > 5)
+				cnt = 5;
 		}
 		else
 		{
 			AC_power_exist = 1;
+			if (--cnt < -5)
+				cnt = -5;
 		}
 
 		test_n[15] = 0;
+
+		// if cnt reaches 5, then send report for AC loss
+		if (cnt >= 5 && sent == 0)
+		{
+			msg_AC_loss = _calloc_box (mpool);
+			msg_AC_loss->id = ID_Num;
+			msg_AC_loss->data[0] = IPI;
+			msg_AC_loss->data[1] = 0xE7;
+			msg_AC_loss->data[3] = ID_Num;
+			msg_AC_loss->data[6] = 1 << (ID_Num - 1);
+			msg_AC_loss->data[7] = MSG_END;
+
+			msg_AC_loss->len = sizeof(msg_AC_loss->data);
+			msg_AC_loss->ch = 2;
+			msg_AC_loss->format = STANDARD_FORMAT;
+			msg_AC_loss->type = DATA_FRAME;
+
+			os_mbx_send (CAN_send_mailbox, msg_AC_loss, 0xffff);
+			sent = 1;
+			recovered = 0;
+		}
+
+		if (cnt <= -5 && recovered == 0)
+		{
+			msg_AC_recovered = _calloc_box (mpool);
+			msg_AC_recovered->id = ID_Num;
+			msg_AC_recovered->data[0] = IPI;
+			msg_AC_recovered->data[1] = 0xE7;
+			msg_AC_recovered->data[3] = ID_Num;
+			msg_AC_recovered->data[6] = 1 << (ID_Num + 3);
+			msg_AC_recovered->data[7] = MSG_END;
+
+			msg_AC_recovered->len = sizeof(msg_AC_recovered->data);
+			msg_AC_recovered->ch = 2;
+			msg_AC_recovered->format = STANDARD_FORMAT;
+			msg_AC_recovered->type = DATA_FRAME;
+
+			os_mbx_send (CAN_send_mailbox, msg_AC_recovered, 0xffff);
+			recovered = 1;
+			sent = 0;
+		}
 
 		Loops_AC_detector++;
 		os_evt_set(EVT_FEED_DOG_AC_DETECTOR, tid_watchdog);
