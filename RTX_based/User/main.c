@@ -69,6 +69,7 @@ u8 Loops_Current_report = 0;
 u8 Loops_AC_detector = 0;
 
 u16 timer_count = 0;//开机启动计数器
+u8 Restart = 0; //重启标志
 
 /* 黄灯绿灯故障屏蔽码 */
 #define GY_ERR_MASK			0xF00
@@ -213,7 +214,7 @@ __task void task_recv_CAN(void)
 				{
 					f_detect = 0;
 				}
-				else if (RxMessage.data[6] == 10)
+				else if ((RxMessage.data[6] == 10)||(RxMessage.data[6] == 12))
 				{
 					f_detect = 1;
 				}
@@ -221,7 +222,7 @@ __task void task_recv_CAN(void)
 			else if(RxMessage.data[0] == IPI && RxMessage.data[1] == 0xA7 && (RxMessage.data[3] == ID_Num || RxMessage.data[3] == 0xFF) && (RxMessage.data[5] & 0x01))
 			{
 				// aim to cause reboot
-				tsk_lock();
+				Restart=1;
 			}
 		}
 
@@ -418,14 +419,13 @@ __task void task_red_led_flash(void)
 	{
 		os_itv_wait ();
 
-		cnt++;
-
 		//GPIO_PinReverse(GPIOD, GPIO_Pin_4);//hard_watchdog
 		if(timer_count<100) timer_count++;//开机计时10s
 		
 		if (!Work_normal)
 		{
-			if (cnt == 2)
+			cnt++;
+			if (cnt == 5)
 			{
 				cnt = 0;
 				state = (BitAction)(1 - state);
@@ -880,13 +880,14 @@ __task void task_conflict_analysis(void)
 
 			if (err_red_data2)
 			{
+
 				msg_error_red = _calloc_box (mpool);
 
 				msg_error_red->id = ID_Num;
 				msg_error_red->data[0] = IPI;
 				msg_error_red->data[1] = 0xE1;
 				msg_error_red->data[3] = ID_Num;
-				err_red_data2 |= ((err_red_data2 | 0x55) != 0) << 14;
+				err_red_data2 |= ((err_red_data2 & 0x55) != 0) << 14;
 				err_red_data2 |= (AC_power_exist == 0) << 15;
 				msg_error_red->data[4] = (U8)(err_red_data2 >> 8);
 				msg_error_red->data[5] = (U8)err_red_data2;
@@ -900,13 +901,14 @@ __task void task_conflict_analysis(void)
 
 			if (err_green_data2)
 			{
+
 				msg_error_green = _calloc_box (mpool);
 
 				msg_error_green->id = ID_Num;
 				msg_error_green->data[0] = IPI;
 				msg_error_green->data[1] = 0xE3;
 				msg_error_green->data[3] = ID_Num;
-				err_green_data2 |= ((err_green_data2 | 0xAA) != 0) << 14;
+				err_green_data2 |= ((err_green_data2 & 0xAA) != 0) << 14;
 				err_green_data2 |= (AC_power_exist == 0) << 15;
 				msg_error_green->data[4] = (U8)(err_green_data2 >> 8);
 				msg_error_green->data[5] = (U8)err_green_data2;
@@ -920,6 +922,7 @@ __task void task_conflict_analysis(void)
 
 			if (err_yellow_data2)
 			{
+
 				msg_error_yellow = _calloc_box (mpool);
 
 				msg_error_yellow->id = ID_Num;
@@ -1213,7 +1216,7 @@ __task void task_watchdog(void)
 									//EVT_FEED_DOG_CURRENT_REPORT |
 									EVT_FEED_DOG_AC_DETECTOR, 50);
 
-		if (result == OS_R_TMO)
+		if ((result == OS_R_TMO) &&(Reset_DOG!=Restart))
 		{
 			//at lease one task has something wrong, check it out
 			if (Loops_CAN_send == 0)
@@ -1387,7 +1390,7 @@ __task void task_watchdog(void)
 			}
 
 		}
-		else
+		else if (Reset_DOG!=Restart)
 		{
 			// all tasks seem good. feed the dog
 			feed_dog();
