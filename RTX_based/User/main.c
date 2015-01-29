@@ -386,11 +386,10 @@ __task void task_green_led_flash(void)
 	while (1)
 	{
 		os_itv_wait ();
-		
-		cnt++;
 
 		if (Work_normal)
 		{
+			cnt++;
 			if (cnt == 15)
 			{
 				cnt = 0;
@@ -727,7 +726,7 @@ __task void task_conflict_analysis(void)
 //////			}
 //////			Last_error = (Last_error & 0x4000) | conflict_map;
 //////		}
-		else if(cal_conflict_map != (Last_error&0xfff))
+		else if(cal_conflict_map != 0) //(Last_error&0xfff))
 		{
 			err_red_data2 = 0;
 			err_green_data2 = 0;
@@ -847,7 +846,7 @@ __task void task_conflict_analysis(void)
 						
 					}
 					
-					if((err_type!=0)&&(err_cnt[i] >= 2))
+					if((err_type!=0)&&(err_cnt[i] >= 1))
 					{
 						err_cnt[i] = 0;
 						
@@ -873,7 +872,7 @@ __task void task_conflict_analysis(void)
 						err_type =0;
 						
 						Last_error = (Last_error & 0x4000) | conflict_map;
-						os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
+						//os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
 					}				
 				}
 			}
@@ -1107,11 +1106,11 @@ __task void task_AC_detector(void)
 	U8 sent = 0, recovered = 0;
 	CAN_msg *msg_AC_loss, *msg_AC_recovered;
 
-	os_itv_set (10); // to detect every 100ms
+	//os_itv_set (10); // to detect every 100ms
 
 	while (1)
 	{
-		os_itv_wait();
+		os_dly_wait(10);
 
 		// start detection
 		AC_Detect_Enable(1);
