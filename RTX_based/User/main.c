@@ -208,7 +208,7 @@ __task void task_recv_CAN(void)
 					os_evt_set (EVT_DATA_3_RCVD, tid_lamp_ctl);
 				}
 			}
-			else if(RxMessage.data[0] == IPI && RxMessage.data[1] == 0xA6 && RxMessage.data[3] == ID_Num)
+			else if(RxMessage.data[0] == IPI && RxMessage.data[1] == 0xA6 )
 			{
 				if ((RxMessage.data[6] == 5) || (RxMessage.data[6] == 6) || (RxMessage.data[6] == 7) || (RxMessage.data[6] == 8) || (RxMessage.data[6] == 9))
 				{
@@ -851,27 +851,27 @@ __task void task_conflict_analysis(void)
 						err_cnt[i] = 0;
 						
 						Work_normal = 0;
-						msg_error = _calloc_box (mpool);
+						//msg_error = _calloc_box (mpool);
 						//						Line_num	 ID_Num	  bad_light_num	  error_type
 						//{ 1, {IPI, 0xD2, 0x00, 0x01,    0xFF,        0xFF,         0xFF,     0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};			
-						msg_error->id = ID_Num;
-						msg_error->data[0] = IPI;
-						msg_error->data[1] = 0xD2;
-						msg_error->data[3] = 0x01;
-						msg_error->data[4] = ID_Num;
-						msg_error->data[7] = MSG_END;
-						msg_error->len = sizeof(msg_error->data);
-						msg_error->ch = 2;
-						msg_error->format = STANDARD_FORMAT;
-						msg_error->type = DATA_FRAME;
+						//msg_error->id = ID_Num;
+						//msg_error->data[0] = IPI;
+						//msg_error->data[1] = 0xD2;
+						//msg_error->data[3] = 0x01;
+						//msg_error->data[4] = ID_Num;
+						//msg_error->data[7] = MSG_END;
+						//msg_error->len = sizeof(msg_error->data);
+						//msg_error->ch = 2;
+						//msg_error->format = STANDARD_FORMAT;
+						//msg_error->type = DATA_FRAME;
 						
 						// specify bad_light_num and error_type
-						msg_error->data[5] = ((3-i/4)+3*(i%4));
+						//msg_error->data[5] = ((3-i/4)+3*(i%4));
 					
-						msg_error->data[6] = err_type;
+						//msg_error->data[6] = err_type;
 						err_type =0;
 						
-						Last_error = (Last_error & 0x4000) | conflict_map;
+						//Last_error = (Last_error & 0x4000) | conflict_map;
 						//os_mbx_send (CAN_send_mailbox, msg_error, 0xffff);
 					}				
 				}
@@ -1215,7 +1215,7 @@ __task void task_watchdog(void)
 									//EVT_FEED_DOG_CURRENT_REPORT |
 									EVT_FEED_DOG_AC_DETECTOR, 50);
 
-		if ((result == OS_R_TMO) &&(Reset_DOG!=Restart))
+		if ((result == OS_R_TMO) &&(Reset_DOG == Restart))
 		{
 			//at lease one task has something wrong, check it out
 			if (Loops_CAN_send == 0)
@@ -1389,7 +1389,7 @@ __task void task_watchdog(void)
 			}
 
 		}
-		else if (Reset_DOG!=Restart)
+		else if (Reset_DOG == Restart)
 		{
 			// all tasks seem good. feed the dog
 			feed_dog();

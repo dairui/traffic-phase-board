@@ -245,13 +245,13 @@ void CAN_Configuration(void)
     CAN_DeInit(CAN1);
     
     CAN_StructInit(&CAN_InitStructure);
-    
+
     CAN_InitStructure.CAN_TTCM = DISABLE;   //时间触发通信模式
     CAN_InitStructure.CAN_ABOM = ENABLE;    //自动离线管理
     CAN_InitStructure.CAN_AWUM = ENABLE;    //自动唤醒模式
     CAN_InitStructure.CAN_NART = DISABLE;   //禁止自动重传模式
     CAN_InitStructure.CAN_RFLM = ENABLE;    //接收FIFO锁定模式
-    CAN_InitStructure.CAN_TXFP = ENABLE;    //发送FIFO优先级  
+    CAN_InitStructure.CAN_TXFP = DISABLE;    //优先级由报文标识符决定
     CAN_InitStructure.CAN_Mode = CAN_Mode_Normal;     	//CAN工作模式
     CAN_InitStructure.CAN_SJW = CAN_SJW_1tq;            //重新同步跳跃宽度1个时间单位
     CAN_InitStructure.CAN_BS1 = CAN_BS1_9tq;            //时间段1为8个时间单位
@@ -264,9 +264,9 @@ void CAN_Configuration(void)
     CAN_FilterInitStructure.CAN_FilterMode   = CAN_FilterMode_IdMask;
     CAN_FilterInitStructure.CAN_FilterScale  = CAN_FilterScale_16bit;
     CAN_FilterInitStructure.CAN_FilterFIFOAssignment = CAN_FilterFIFO0;
-    CAN_FilterInitStructure.CAN_FilterIdHigh = 0x0001 << 5;
-	CAN_FilterInitStructure.CAN_FilterIdLow = 0x0000 ;
-    CAN_FilterInitStructure.CAN_FilterMaskIdHigh = 0xFFFE << 5;
+    CAN_FilterInitStructure.CAN_FilterIdHigh = 0x0005 << 5;
+    CAN_FilterInitStructure.CAN_FilterIdLow = 0x0000;
+    CAN_FilterInitStructure.CAN_FilterMaskIdHigh = 0x07FF << 5;
     CAN_FilterInitStructure.CAN_FilterMaskIdLow = 0xFFFF;
     CAN_FilterInitStructure.CAN_FilterActivation = ENABLE; 
     CAN_FilterInit(&CAN_FilterInitStructure);     //过滤器初始化 

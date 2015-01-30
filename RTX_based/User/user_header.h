@@ -41,6 +41,8 @@
 #define GREEN_CONFLICT			0x06
 #define YELLOW_CONFLICT			0x07
 
+#define Reset_DOG			0x00
+
 #define EVT_FEED_DOG_CAN_SEND			0x0001
 #define EVT_FEED_DOG_CAN_RECV			0x0002
 #define EVT_FEED_DOG_LAMP_CTL			0x0004
