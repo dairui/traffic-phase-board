@@ -315,10 +315,11 @@ __task void task_lamp_ctl(void)
 			// send a heart beat
 			os_evt_set(EVT_SEND_HEART_BEAT, tid_heart_beat);
 
+			Pick_channels();
+			Update_lights();
+
 			if (AC_power_exist && f_detect)
 			{
-				Pick_channels();
-				Update_lights();
 				os_evt_set(EVT_CONFLICT_MONITOR, tid_conflict_monitor);
 			}
 		}
