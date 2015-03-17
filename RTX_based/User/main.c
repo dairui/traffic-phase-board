@@ -12,6 +12,12 @@ void DMAReConfig(void);
 /* Initialize message  = { ID, {data[0] .. data[7]}, LEN, CHANNEL, FORMAT, TYPE } */
 //CAN_msg msg_recovered = { 1, {IPI, 0xD2, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFE}, 8, 2, STANDARD_FORMAT, DATA_FRAME};
 
+typedef struct _CA_msg {
+	U16 _cal_conflict_map;
+	U16 _Picked_lights_status_map;
+	U16 _ADC_status_map;
+	U16 _SWITs_status_map;
+} CA_msg;
 
 OS_TID tid_send_CAN;
 OS_TID tid_recv_CAN;
@@ -27,8 +33,11 @@ OS_TID tid_watchdog;
 
 OS_MUT mutex_ADC_minute;
 
-os_mbx_declare (CAN_send_mailbox, 20);
-_declare_box(mpool,sizeof(CAN_msg),32);
+os_mbx_declare (send_CAN_mailbox, 8);
+os_mbx_declare(conflict_analysis_mailbox, 8);
+
+_declare_box(scmpool, sizeof(CAN_msg), 8);
+_declare_box(campool, sizeof(CA_msg), 8);
 
 __task void init(void);
 __task void task_send_CAN(void);
@@ -93,8 +102,11 @@ __task void init (void)
 	
 	ID_Num = read_ID_addr();
 	
-	os_mbx_init (CAN_send_mailbox, sizeof(CAN_send_mailbox));
-	_init_box (mpool, sizeof(mpool), sizeof(CAN_msg));
+	os_mbx_init (send_CAN_mailbox, sizeof(send_CAN_mailbox));
+	_init_box (scmpool, sizeof(scmpool), sizeof(CAN_msg));
+	os_mbx_init (conflict_analysis_mailbox, sizeof(conflict_analysis_mailbox));
+	_init_box (campool, sizeof(campool), sizeof(CA_msg));
+
 	os_mut_init(mutex_ADC_minute);
 
 	// init lights all red
@@ -134,12 +146,12 @@ __task void task_send_CAN(void)
 
 	while (1)
 	{
-		result = os_mbx_wait (CAN_send_mailbox, &msg, 0x000A);
+		result = os_mbx_wait (send_CAN_mailbox, &msg, 0x000A);
 
 		if (result != OS_R_TMO)
 		{
 			CAN_send (1, msg, 0x0F00);  /* Send msg_send on controller 1       */
-			_free_box (mpool, msg);
+			_free_box (scmpool, msg);
 		}
 
 		os_evt_set(EVT_FEED_DOG_CAN_SEND, tid_watchdog);
@@ -402,6 +414,7 @@ __task void task_conflict_monitor(void)
 	__IO int16_t  ADC_low_threshold[12] = {0,0,0,0,0,0,0,0,0,0,0,0};
 	U8  conflict_flag = 0U;
 	U16 conflict_count[12U] = {0U};
+	CA_msg *msg;
 
 	while (1)
 	{
@@ -538,7 +551,13 @@ __task void task_conflict_monitor(void)
 				}
 
 				// handle conflict
-				os_evt_set(EVT_CONFLICT_ANALYSIS, tid_conflict_analysis);
+				msg = _calloc_box (campool);
+				msg->_cal_conflict_map = cal_conflict_map;
+				msg->_Picked_lights_status_map = Picked_lights_status_map;
+				msg->_ADC_status_map = ADC_status_map;
+				msg->_SWITs_status_map = SWITs_status_map;
+
+				os_mbx_send (conflict_analysis_mailbox, msg, 0xffff);
 			}
 		}
 
@@ -550,6 +569,7 @@ __task void task_conflict_analysis(void)
 {
 	OS_RESULT result;
 	CAN_msg *msg_error, *msg_error_red, *msg_error_green, *msg_error_yellow;
+	void *msg;
 	int i;
 	U8 err_type = 0;
 	U16 err_red_data2 = 0;
@@ -559,13 +579,13 @@ __task void task_conflict_analysis(void)
 
 	while (1)
 	{
-		// wait for event to start a conflict analysis
-		result = os_evt_wait_and (EVT_CONFLICT_ANALYSIS, 0x000A);
+		// wait for mailbox to start a conflict analysis
+		result = os_mbx_wait (conflict_analysis_mailbox, &msg, 0x000A);
 		if (result == OS_R_TMO) 
 		{
 			//printf("Event wait timeout.\n");
 		}
-		else if(cal_conflict_map != 0)
+		else if((*((CA_msg *)msg))._cal_conflict_map != 0)
 		{
 			err_red_data2 = 0;
 			err_green_data2 = 0;
@@ -574,17 +594,17 @@ __task void task_conflict_analysis(void)
 			// check each conflict bit
 			for (i=0; i<12; i++)
 			{
-				if ((cal_conflict_map >> i) & 0x0001)
+				if (((*((CA_msg *)msg))._cal_conflict_map >> i) & 0x0001)
 				{
 					err_cnt[i]++;
 					
 					if((i/4) == 2)	//红灯
 					{
-						if(((Picked_lights_status_map >> i) & 0x0001) == 1)		//can下发红灯为亮
+						if((((*((CA_msg *)msg))._Picked_lights_status_map >> i) & 0x0001) == 1)	//can下发红灯为亮
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 0)			//ad检测电流为0
+							if((((*((CA_msg *)msg))._ADC_status_map >> i) & 0x0001) == 0)	//ad检测电流为0
 							{
-								if(((SWITs_status_map >> i) & 0x0001) == 0)	//可控硅开路
+								if((((*((CA_msg *)msg))._SWITs_status_map >> i) & 0x0001) == 0)	//可控硅开路
 								{
 									err_type = ERROR_SWIT_OPEN;
 								}
@@ -593,14 +613,14 @@ __task void task_conflict_analysis(void)
 									err_type = ERROR_LIGHT;
 									err_red_data2 |= 1 << (2*(i%4));
 								}
-								Last_error |= 0x4000;							//黄闪
+								Last_error |= 0x4000;					//黄闪
 							}
 						}
 						else													//灭
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 1)			//ad检测电流为1
+							if((((*((CA_msg *)msg))._ADC_status_map >> i) & 0x0001) == 1)	//ad检测电流为1
 							{
-								if(((SWITs_status_map >> i) & 0x0001) == 1)	//可控硅短路
+								if((((*((CA_msg *)msg))._SWITs_status_map >> i) & 0x0001) == 1)	//可控硅短路
 								{
 									err_type = ERROR_SWIT_CLOSE;
 								}
@@ -615,11 +635,11 @@ __task void task_conflict_analysis(void)
 					}
 					else if((i/4) == 0)	//绿灯
 					{
-						if(((Picked_lights_status_map >> i) & 0x0001) == 1)		//can下发绿灯为亮
+						if((((*((CA_msg *)msg))._Picked_lights_status_map >> i) & 0x0001) == 1)		//can下发绿灯为亮
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 0)			//ad检测电流为0
+							if((((*((CA_msg *)msg))._ADC_status_map >> i) & 0x0001) == 0)			//ad检测电流为0
 							{
-								if(((SWITs_status_map >> i) & 0x0001) == 0)	//可控硅开路
+								if((((*((CA_msg *)msg))._SWITs_status_map >> i) & 0x0001) == 0)	//可控硅开路
 								{
 									err_type = ERROR_SWIT_OPEN;
 								}
@@ -632,9 +652,9 @@ __task void task_conflict_analysis(void)
 						}
 						else													//灭
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 1)			//ad检测电流为1
+							if((((*((CA_msg *)msg))._ADC_status_map >> i) & 0x0001) == 1)			//ad检测电流为1
 							{
-								if(((SWITs_status_map >> i) & 0x0001) == 1)	//可控硅短路
+								if((((*((CA_msg *)msg))._SWITs_status_map >> i) & 0x0001) == 1)	//可控硅短路
 								{
 									err_type = ERROR_SWIT_CLOSE;
 								}
@@ -651,11 +671,11 @@ __task void task_conflict_analysis(void)
 					}
 					else if((i/4) == 1)	//黄灯
 					{
-						if(((Picked_lights_status_map >> i) & 0x0001) == 1)		//can下发黄灯为亮
+						if((((*((CA_msg *)msg))._Picked_lights_status_map >> i) & 0x0001) == 1)		//can下发黄灯为亮
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 0)			//ad检测电流为0
+							if((((*((CA_msg *)msg))._ADC_status_map >> i) & 0x0001) == 0)			//ad检测电流为0
 							{
-								if(((SWITs_status_map >> i) & 0x0001) == 0)	//可控硅开路
+								if((((*((CA_msg *)msg))._SWITs_status_map >> i) & 0x0001) == 0)	//可控硅开路
 								{
 									err_type = ERROR_SWIT_OPEN;
 								}
@@ -668,9 +688,9 @@ __task void task_conflict_analysis(void)
 						}
 						else													//灭
 						{
-							if(((ADC_status_map >> i) & 0x0001) == 1)			//ad检测电流为1
+							if((((*((CA_msg *)msg))._ADC_status_map >> i) & 0x0001) == 1)			//ad检测电流为1
 							{
-								if(((SWITs_status_map >> i) & 0x0001) == 1)	//可控硅短路
+								if((((*((CA_msg *)msg))._SWITs_status_map >> i) & 0x0001) == 1)	//可控硅短路
 								{
 									err_type = ERROR_SWIT_CLOSE;
 								}
@@ -695,7 +715,7 @@ __task void task_conflict_analysis(void)
 			if (err_red_data2)
 			{
 
-				msg_error_red = _calloc_box (mpool);
+				msg_error_red = _calloc_box (scmpool);
 
 				msg_error_red->id = ID_Num;
 				msg_error_red->data[0] = IPI;
@@ -710,13 +730,13 @@ __task void task_conflict_analysis(void)
 				msg_error_red->ch = 2;
 				msg_error_red->format = STANDARD_FORMAT;
 				msg_error_red->type = DATA_FRAME;
-				os_mbx_send (CAN_send_mailbox, msg_error_red, 0xffff);
+				os_mbx_send (send_CAN_mailbox, msg_error_red, 0xffff);
 			}
 
 			if (err_green_data2)
 			{
 
-				msg_error_green = _calloc_box (mpool);
+				msg_error_green = _calloc_box (scmpool);
 
 				msg_error_green->id = ID_Num;
 				msg_error_green->data[0] = IPI;
@@ -731,13 +751,13 @@ __task void task_conflict_analysis(void)
 				msg_error_green->ch = 2;
 				msg_error_green->format = STANDARD_FORMAT;
 				msg_error_green->type = DATA_FRAME;
-				os_mbx_send (CAN_send_mailbox, msg_error_green, 0xffff);
+				os_mbx_send (send_CAN_mailbox, msg_error_green, 0xffff);
 			}
 
 			if (err_yellow_data2)
 			{
 
-				msg_error_yellow = _calloc_box (mpool);
+				msg_error_yellow = _calloc_box (scmpool);
 
 				msg_error_yellow->id = ID_Num;
 				msg_error_yellow->data[0] = IPI;
@@ -751,8 +771,10 @@ __task void task_conflict_analysis(void)
 				msg_error_yellow->ch = 2;
 				msg_error_yellow->format = STANDARD_FORMAT;
 				msg_error_yellow->type = DATA_FRAME;
-				os_mbx_send (CAN_send_mailbox, msg_error_yellow, 0xffff);
+				os_mbx_send (send_CAN_mailbox, msg_error_yellow, 0xffff);
 			}
+
+			_free_box (campool, msg);
 
 		}
 
@@ -775,7 +797,7 @@ __task void task_heart_beat(void)
 		}
 		else
 		{
-			msg_heart_beat = _calloc_box (mpool);
+			msg_heart_beat = _calloc_box (scmpool);
 			msg_heart_beat->id = ID_Num;
 			msg_heart_beat->data[0] = IPI;
 			msg_heart_beat->data[1] = 0x83;
@@ -793,7 +815,7 @@ __task void task_heart_beat(void)
 			msg_heart_beat->format = STANDARD_FORMAT;
 			msg_heart_beat->type = DATA_FRAME;
 			os_dly_wait(ID_Num);
-			os_mbx_send (CAN_send_mailbox, msg_heart_beat, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_heart_beat, 0xffff);
 		}
 
 		os_evt_set(EVT_FEED_DOG_HEART_BEAT, tid_watchdog);
@@ -837,11 +859,11 @@ __task void task_current_report(void)
 				}
 			}
 
-			msg_current_report_1 = _calloc_box (mpool);
-			msg_current_report_2 = _calloc_box (mpool);
-			msg_current_report_3 = _calloc_box (mpool);
-			msg_current_report_4 = _calloc_box (mpool);
-			msg_current_report_5 = _calloc_box (mpool);
+			msg_current_report_1 = _calloc_box (scmpool);
+			msg_current_report_2 = _calloc_box (scmpool);
+			msg_current_report_3 = _calloc_box (scmpool);
+			msg_current_report_4 = _calloc_box (scmpool);
+			msg_current_report_5 = _calloc_box (scmpool);
 
 			//msg_current_report_x { id,{	data[0], 	   		data[1] 	data[2] 	data[3] 	data[4] 	data[5] 	data[6]	data[7]			}, len, 	ch,	format,				type			};
 			//msg_current_report_1 { 1, {	IPI 				0xCC 	0x00 	0x01 	P1Rl 	P1Rh 	P1Yl 	MSG_CONTINUE	}, 8,		2,	STANDARD_FORMAT,	DATA_FRAME	};
@@ -895,11 +917,11 @@ __task void task_current_report(void)
 			msg_current_report_2->data[2] = ADC_minute_average[11] & 0x00FF;	//P1Gl
 			msg_current_report_2->data[3] = ADC_minute_average[11] >> 8;		//P1Gh
 
-			os_mbx_send (CAN_send_mailbox, msg_current_report_1, 0xffff);
-			os_mbx_send (CAN_send_mailbox, msg_current_report_2, 0xffff);
-			os_mbx_send (CAN_send_mailbox, msg_current_report_3, 0xffff);
-			os_mbx_send (CAN_send_mailbox, msg_current_report_4, 0xffff);
-			os_mbx_send (CAN_send_mailbox, msg_current_report_5, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_current_report_1, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_current_report_2, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_current_report_3, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_current_report_4, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_current_report_5, 0xffff);
 		}
 
 		os_evt_set(EVT_FEED_DOG_CURRENT_REPORT, tid_watchdog);
@@ -946,7 +968,7 @@ __task void task_AC_detector(void)
 		// if cnt reaches 2, then send report for AC loss
 		if (cnt >= 2 && sent == 0)
 		{
-			msg_AC_loss = _calloc_box (mpool);
+			msg_AC_loss = _calloc_box (scmpool);
 			msg_AC_loss->id = ID_Num;
 			msg_AC_loss->data[0] = IPI;
 			msg_AC_loss->data[1] = 0xE7;
@@ -959,14 +981,14 @@ __task void task_AC_detector(void)
 			msg_AC_loss->format = STANDARD_FORMAT;
 			msg_AC_loss->type = DATA_FRAME;
 
-			os_mbx_send (CAN_send_mailbox, msg_AC_loss, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_AC_loss, 0xffff);
 			sent = 1;
 			recovered = 0;
 		}
 
 		if (cnt <= -2 && recovered == 0)
 		{
-			msg_AC_recovered = _calloc_box (mpool);
+			msg_AC_recovered = _calloc_box (scmpool);
 			msg_AC_recovered->id = ID_Num;
 			msg_AC_recovered->data[0] = IPI;
 			msg_AC_recovered->data[1] = 0xE7;
@@ -979,7 +1001,7 @@ __task void task_AC_detector(void)
 			msg_AC_recovered->format = STANDARD_FORMAT;
 			msg_AC_recovered->type = DATA_FRAME;
 
-			os_mbx_send (CAN_send_mailbox, msg_AC_recovered, 0xffff);
+			os_mbx_send (send_CAN_mailbox, msg_AC_recovered, 0xffff);
 			recovered = 1;
 			sent = 0;
 		}
